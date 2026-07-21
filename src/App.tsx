@@ -212,6 +212,7 @@ export default function App() {
   const [accounts, setAccounts] = useState<UserAccount[]>([]);
   const [currentAccount, setCurrentAccount] = useState<UserAccount | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTickTimeRef = useRef<number>(Date.now());
   const [globalConfig, setGlobalConfig] = useState<any>({
     pricePerUnit: 180000,
     dailyRewardPercent: 2.0,
@@ -743,7 +744,21 @@ export default function App() {
   useEffect(() => {
     if (!state.isLoggedIn || isSplashScreen) return;
 
+    // Reset last tick time on mount / change
+    lastTickTimeRef.current = Date.now();
+
+    // Determine loop interval dynamically
+    // When on live mining, tick at 1 second for perfect visual real-time smoothness
+    // When on other tabs, throttle tick to 6 seconds to completely save device battery and CPU resources
+    const tickInterval = currentTab === 'livemining' ? 1000 : 6000;
+
     const timer = setInterval(() => {
+      const nowTime = Date.now();
+      const elapsedMs = nowTime - lastTickTimeRef.current;
+      // Safeguard: clamp elapsed seconds in case of browser throttling or system sleep
+      const elapsedSecs = Math.min(Math.max(elapsedMs / 1000, 0.1), 3600);
+      lastTickTimeRef.current = nowTime;
+
       // Calculate earnings and check capping limits
       const totalPortfolio = state.activeContracts * CONFIG.PRICE_PER_UNIT;
       const maxAllowed = totalPortfolio * CONFIG.CAPPING_PERCENT;
@@ -757,13 +772,13 @@ export default function App() {
 
       if (state.activeContracts > 0 && !isCapped) {
         updateState(prev => {
-          let nextCycle = prev.cyclePercent + 1.5 * simSpeed * activeBoostMult;
+          let nextCycle = prev.cyclePercent + 1.5 * simSpeed * activeBoostMult * elapsedSecs;
           let addedGold = 0;
 
           if (nextCycle >= 100) {
             nextCycle = nextCycle % 100;
             // Add a realistic trace amount of gold per active contract unit
-            addedGold = (0.0003 + Math.random() * 0.0007) * prev.activeContracts * simSpeed * activeBoostMult;
+            addedGold = (0.0003 + Math.random() * 0.0007) * prev.activeContracts * simSpeed * activeBoostMult * elapsedSecs;
           }
 
           const now = Date.now();
@@ -791,7 +806,7 @@ export default function App() {
 
           // Calculate daily yield per second (4% daily rate / 86400 seconds)
           const dailyYieldSec = (prev.activeContracts * CONFIG.PRICE_PER_UNIT * CONFIG.DAILY_REWARD_PERCENT) / 86400;
-          const increment = dailyYieldSec * simSpeed * activeBoostMult;
+          const increment = dailyYieldSec * simSpeed * activeBoostMult * elapsedSecs;
 
           // Ensure we don't exceed the capping ceiling
           const currentTotalPortfolio = prev.activeContracts * CONFIG.PRICE_PER_UNIT;
@@ -856,10 +871,10 @@ export default function App() {
           };
         });
       }
-    }, 1000);
+    }, tickInterval);
 
     return () => clearInterval(timer);
-  }, [state.isLoggedIn, state.activeContracts, state.totalEarned, isSplashScreen, simSpeed, boostTimeLeft, currentAccount?.settings?.autoReinvest]);
+  }, [state.isLoggedIn, state.activeContracts, state.totalEarned, isSplashScreen, simSpeed, boostTimeLeft, currentAccount?.settings?.autoReinvest, currentTab]);
 
   // --- REWARD CLAIM COUNTDOWN TIMER ---
   useEffect(() => {
@@ -887,40 +902,58 @@ export default function App() {
   }, [state.lastClaimTime, serverTimeOffset]);
 
   // --- HELPER METRICS ---
-  // --- DYNAMIC WALLET METRICS (PERFECTLY SYNCHRONIZED WITH THE DATABASE TRANSACTIONS) ---
-  const miningProfit = (state.transactions || [])
-    .filter(t => t.type === 'reward')
-    .reduce((sum, item) => sum + item.amount, 0);
+  // --- DYNAMIC WALLET METRICS (PERFECTLY SYNCHRONIZED WITH THE DATABASE TRANSACTIONS & MEMOIZED FOR MAXIMUM PERFORMANCE) ---
+  const {
+    miningProfit,
+    referralReward,
+    rebateReward,
+    bonusReward,
+    totalEarned,
+    totalWithdraw,
+    totalDeposit,
+  } = React.useMemo(() => {
+    const txs = state.transactions || [];
+    let mining = 0;
+    let referral = 0;
+    let rebate = 0;
+    let bonus = 0;
+    let withdraw = 0;
+    let deposit = 0;
 
-  const referralReward = (state.transactions || [])
-    .filter(t => t.type === 'referral')
-    .reduce((sum, item) => sum + item.amount, 0);
+    for (let i = 0; i < txs.length; i++) {
+      const t = txs[i];
+      const amt = Number(t.amount) || 0;
+      if (t.type === 'reward') {
+        mining += amt;
+      } else if (t.type === 'referral') {
+        referral += amt;
+      } else if (t.type === 'rebate') {
+        rebate += amt;
+      } else if (t.type === 'welcome_bonus' || t.type === 'bonus') {
+        bonus += amt;
+      } else if (t.type === 'withdraw') {
+        const stat = (t.status || '').toLowerCase();
+        if (stat !== 'pending' && stat !== 'processing' && stat !== 'rejected' && stat !== 'failed') {
+          withdraw += amt;
+        }
+      } else if (t.type === 'deposit') {
+        const stat = (t.status || '').toLowerCase();
+        if (stat !== 'pending' && stat !== 'processing' && stat !== 'rejected' && stat !== 'failed') {
+          deposit += amt;
+        }
+      }
+    }
 
-  const rebateReward = (state.transactions || [])
-    .filter(t => t.type === 'rebate')
-    .reduce((sum, item) => sum + item.amount, 0);
-
-  const bonusReward = (state.transactions || [])
-    .filter(t => t.type === 'welcome_bonus' || t.type === 'bonus')
-    .reduce((sum, item) => sum + item.amount, 0);
-
-  const totalEarned = miningProfit + referralReward + rebateReward + bonusReward;
-
-  const totalWithdraw = (state.transactions || [])
-    .filter(t => {
-      if (t.type !== 'withdraw') return false;
-      const stat = (t.status || '').toLowerCase();
-      return stat !== 'pending' && stat !== 'processing' && stat !== 'rejected' && stat !== 'failed';
-    })
-    .reduce((sum, item) => sum + item.amount, 0);
-
-  const totalDeposit = (state.transactions || [])
-    .filter(t => {
-      if (t.type !== 'deposit') return false;
-      const stat = (t.status || '').toLowerCase();
-      return stat !== 'pending' && stat !== 'processing' && stat !== 'rejected' && stat !== 'failed';
-    })
-    .reduce((sum, item) => sum + item.amount, 0);
+    return {
+      miningProfit: mining,
+      referralReward: referral,
+      rebateReward: rebate,
+      bonusReward: bonus,
+      totalEarned: mining + referral + rebate + bonus,
+      totalWithdraw: withdraw,
+      totalDeposit: deposit,
+    };
+  }, [state.transactions]);
 
   const totalPortfolioValue = state.activeContracts * CONFIG.PRICE_PER_UNIT;
   const maxPossibleEarnings = totalPortfolioValue * CONFIG.CAPPING_PERCENT;
