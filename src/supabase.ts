@@ -5,6 +5,9 @@ import { UserAccount, Transaction, AppState, CONFIG } from './types';
 // SUPABASE CLIENT INITIALIZATION
 // =========================================================================
 
+const FALLBACK_URL = 'https://qfhwprovgkjuiyiguxtn.supabase.co';
+const FALLBACK_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmaHdwcm92Z2tqdWl5aWd1eHRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTc0NTUsImV4cCI6MjA5OTc5MzQ1NX0.r2MkVzBez8D0Hgi5CMzNSUPHRMSDNq6To0AYTfioGYA';
+
 function getSupabaseUrl(): string {
   try {
     // @ts-ignore
@@ -15,10 +18,13 @@ function getSupabaseUrl(): string {
       }
     }
   } catch (e) {}
-  return 'https://qfhwprovgkjuiyiguxtn.supabase.co';
+  return FALLBACK_URL;
 }
 
-function getSupabaseKey(): string {
+function getSupabaseKey(url: string): string {
+  if (url === FALLBACK_URL) {
+    return FALLBACK_KEY;
+  }
   try {
     // @ts-ignore
     const key = import.meta.env?.VITE_SUPABASE_ANON_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
@@ -28,11 +34,11 @@ function getSupabaseKey(): string {
       }
     }
   } catch (e) {}
-  return 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmaHdwcm92Z2tqdWl5aWd1eHRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTc0NTUsImV4cCI6MjA5OTc5MzQ1NX0.r2MkVzBez8D0Hgi5CMzNSUPHRMSDNq6To0AYTfioGYA';
+  return FALLBACK_KEY;
 }
 
 const SUPABASE_URL = getSupabaseUrl();
-const SUPABASE_ANON_KEY = getSupabaseKey();
+const SUPABASE_ANON_KEY = getSupabaseKey(SUPABASE_URL);
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 

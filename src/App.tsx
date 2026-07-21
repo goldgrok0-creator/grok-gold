@@ -86,6 +86,7 @@ const GoldMarketChart = lazy(() => import('./components/GoldMarketChart'));
 import Leaderboard from './components/Leaderboard';
 import ReferralDashboard from './components/ReferralDashboard';
 import HomeSkeleton from './components/HomeSkeleton';
+import { HarvestModal } from './components/HarvestModal';
 import AdminLayout from './components/admin/AdminLayout';
 import AdminRouteLoginForm from './components/admin/AdminRouteLoginForm';
 import {
@@ -4366,13 +4367,12 @@ export default function App() {
 
                       {/* Yield Claim Action */}
                       <button
-                        onClick={handleClaimYield}
-                        disabled={claimCooldownText !== '' || state.activeContracts === 0 || isCappedLimitMet}
-                        className={`w-full py-3 rounded-xl text-xs font-black uppercase transition flex items-center justify-center gap-2 mt-4 ${
+                        onClick={() => setHarvestModalOpen(true)}
+                        className={`w-full py-3 rounded-xl text-xs font-black uppercase transition flex items-center justify-center gap-2 mt-4 cursor-pointer ${
                           claimCooldownText !== ''
-                            ? 'bg-slate-900 border border-white/5 text-slate-400 cursor-not-allowed'
+                            ? 'bg-slate-900 border border-white/5 text-slate-400'
                             : isCappedLimitMet
-                            ? 'bg-rose-500/10 text-rose-400 border border-rose-500/15 cursor-not-allowed'
+                            ? 'bg-rose-500/10 text-rose-400 border border-rose-500/15'
                             : 'bg-gradient-to-r from-yellow-300 via-gold-primary to-yellow-600 hover:brightness-110 shadow-lg shadow-gold-primary/25 text-black'
                         }`}
                       >
@@ -5436,6 +5436,10 @@ export default function App() {
                       </div>
                       <div className="flex justify-between border-b border-white/5 pb-2">
                         <span className="text-slate-400">⛏️ Mining Profit</span>
+                        <span className="text-emerald-400 font-extrabold">Rp {miningProfit.toLocaleString('id-ID')}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-white/5 pb-2">
+                        <span className="text-slate-400">💰 {language === 'id' ? 'Claim Harian 2%' : 'Daily Claim 2%'}</span>
                         <span className="text-emerald-400 font-extrabold">Rp {miningProfit.toLocaleString('id-ID')}</span>
                       </div>
                       <div className="flex justify-between border-b border-white/5 pb-2">
@@ -7605,120 +7609,18 @@ export default function App() {
 
 
         {/* CUSTOM HARVEST MODAL */}
-        <AnimatePresence>
-          {harvestModalOpen && (
-            <div className="fixed inset-0 z-[199999] flex items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setHarvestModalOpen(false)}
-                className="fixed inset-0 bg-black/85 backdrop-blur-md"
-              />
-              <motion.div
-                initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                transition={{ type: 'spring', duration: 0.4 }}
-                className="relative w-full max-w-sm bg-[#120a26] border border-emerald-500/35 rounded-3xl p-6 text-left shadow-2xl z-10 space-y-4"
-              >
-                <div className="flex justify-between items-center border-b border-white/5 pb-3">
-                  <h3 className="text-sm font-black tracking-wider text-white uppercase flex items-center gap-2">
-                    <Coins className="w-5 h-5 text-emerald-400 animate-pulse" />
-                    {language === 'id' ? 'Klaim Reward Harian' : 'Claim Daily Reward'}
-                  </h3>
-                  <button onClick={() => setHarvestModalOpen(false)} className="text-slate-400 hover:text-white transition">
-                    <XCircle className="w-5 h-5" />
-                  </button>
-                </div>
-
-                <div className="space-y-4 py-2">
-                  {state.activeContracts === 0 ? (
-                    <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-5 text-center space-y-2">
-                      <XCircle className="w-10 h-10 text-rose-500 mx-auto" />
-                      <p className="text-xs font-bold text-rose-400">
-                        No active contract. Purchase a contract to start earning rewards.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="bg-black/40 border border-emerald-500/15 rounded-2xl p-4 text-center">
-                        <span className="text-[10px] text-slate-400 font-bold block uppercase mb-1 tracking-wider">
-                          {language === 'id' ? 'Nilai Kontrak Aktif' : 'Active Contract Value'}
-                        </span>
-                        <div className="text-2xl font-black text-gradient-gold font-orbitron">
-                          Rp {totalPortfolioValue.toLocaleString('id-ID')}
-                        </div>
-                        <span className="text-[10px] text-emerald-400 font-bold block mt-1">
-                          {language === 'id' ? `Daily Reward (${(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}%):` : `Daily Reward (${(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}%):`} Rp {dailyYield.toLocaleString('id-ID')}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-center text-[10px] font-bold">
-                        <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
-                          <span className="text-slate-400 block uppercase mb-0.5">
-                            {language === 'id' ? 'Profit Hari Ini' : "Today's Profit"}
-                          </span>
-                          <span className="text-emerald-400 font-mono">Rp {(state.todayProfit || 0).toLocaleString('id-ID')}</span>
-                        </div>
-                        <div className="bg-white/5 p-2.5 rounded-xl border border-white/5">
-                          <span className="text-slate-400 block uppercase mb-0.5">
-                            {language === 'id' ? 'Total Profit' : 'Total Profit'}
-                          </span>
-                          <span className="text-yellow-500 font-mono">Rp {(state.totalProfit || 0).toLocaleString('id-ID')}</span>
-                        </div>
-                      </div>
-
-                      {claimCooldownText !== '' && (
-                        <p className="text-[9.5px] text-amber-400 font-bold text-center bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl">
-                          {language === 'id' 
-                            ? "Klaim berhasil hari ini. Kembali lagi setelah hitung mundur selesai."
-                            : "You have already claimed today's reward. Please come back after the countdown ends."}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={() => setHarvestModalOpen(false)}
-                    className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 rounded-xl text-xs font-bold transition"
-                  >
-                    {language === 'id' ? 'Kembali' : 'Back'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      handleClaimYield();
-                      if (claimCooldownText === '' && state.activeContracts > 0) {
-                        setHarvestModalOpen(false);
-                      }
-                    }}
-                    className={`flex-1 py-3 rounded-xl text-xs font-black uppercase transition flex items-center justify-center gap-1.5 ${
-                      state.activeContracts === 0
-                        ? 'bg-slate-950 border border-white/5 text-slate-500 cursor-not-allowed'
-                        : claimCooldownText !== ''
-                        ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400 cursor-pointer'
-                        : 'bg-gradient-to-r from-emerald-400 to-emerald-600 text-black font-extrabold hover:brightness-110 shadow-lg shadow-emerald-500/20'
-                    }`}
-                  >
-                    {claimCooldownText !== '' ? (
-                      <>
-                        <ClockIcon className="w-3.5 h-3.5 animate-pulse text-amber-400" />
-                        <span className="text-[10px] text-amber-400 font-mono font-bold">{claimCooldownText}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Coins className="w-4 h-4 text-black" />
-                        <span>{language === 'id' ? 'Klaim' : 'Claim'}</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
+        <HarvestModal
+          isOpen={harvestModalOpen}
+          onClose={() => setHarvestModalOpen(false)}
+          language={language}
+          activeContracts={state.activeContracts}
+          totalPortfolioValue={totalPortfolioValue}
+          dailyYield={dailyYield}
+          todayProfit={state.todayProfit}
+          totalProfit={state.totalProfit}
+          claimCooldownText={claimCooldownText}
+          onClaimYield={handleClaimYield}
+        />
 
         {/* WELCOME BONUS ACHIEVEMENTS SCHEMA MODAL */}
         <AnimatePresence>
