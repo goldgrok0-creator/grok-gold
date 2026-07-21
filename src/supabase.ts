@@ -640,6 +640,10 @@ export async function createWithdrawalInSupabase(
   accountName: string
 ): Promise<boolean> {
   try {
+    if (amount <= 0) {
+      console.warn(`Invalid withdrawal amount: ${amount}`);
+      return false;
+    }
     // 1. Fetch User balance
     const { data: user } = await supabase.from('users').select('main_balance').eq('username', username).single();
     if (!user) return false;

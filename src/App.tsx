@@ -86,7 +86,14 @@ const GoldMarketChart = lazy(() => import('./components/GoldMarketChart'));
 import Leaderboard from './components/Leaderboard';
 import ReferralDashboard from './components/ReferralDashboard';
 import HomeSkeleton from './components/HomeSkeleton';
+import NotificationsPage from './components/NotificationsPage';
+import AboutPage from './components/AboutPage';
+import HelpPage from './components/HelpPage';
+import ContractPage from './components/ContractPage';
+import NetworkPage from './components/NetworkPage';
+import WalletPage from './components/WalletPage';
 import { HarvestModal } from './components/HarvestModal';
+import ClockIcon from './components/icons/ClockIcon';
 import AdminLayout from './components/admin/AdminLayout';
 import AdminRouteLoginForm from './components/admin/AdminRouteLoginForm';
 import {
@@ -158,34 +165,7 @@ const SPIN_ITEMS = [
   { label: 'Boost 10x', color: '#f8961e', value: 10, type: 'boost' },
 ];
 
-function isSameDay(t1: number, t2: number) {
-  const d1 = new Date(t1);
-  const d2 = new Date(t2);
-  return d1.getFullYear() === d2.getFullYear() &&
-         d1.getMonth() === d2.getMonth() &&
-         d1.getDate() === d2.getDate();
-}
-
-function getWeekNumber(d: Date) {
-  const date = new Date(d.getTime());
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
-  const week1 = new Date(date.getFullYear(), 0, 4);
-  return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000
-                        - 3 + (week1.getDay() + 6) % 7) / 7);
-}
-
-function isSameWeek(t1: number, t2: number) {
-  const d1 = new Date(t1);
-  const d2 = new Date(t2);
-  return d1.getFullYear() === d2.getFullYear() && getWeekNumber(d1) === getWeekNumber(d2);
-}
-
-function isSameMonth(t1: number, t2: number) {
-  const d1 = new Date(t1);
-  const d2 = new Date(t2);
-  return d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth();
-}
+import { isSameDay, isSameWeek, isSameMonth } from './utils/date';
 
 export default function App() {
   // --- SYSTEM STATES ---
@@ -286,6 +266,7 @@ export default function App() {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawBank, setWithdrawBank] = useState('BCA');
   const [withdrawAccount, setWithdrawAccount] = useState('');
+  const [isSubmittingWithdrawal, setIsSubmittingWithdrawal] = useState(false);
 
   // --- CUSTOM TRANSFER MODAL STATES ---
   const [transferModalOpen, setTransferModalOpen] = useState(false);
@@ -2512,7 +2493,17 @@ export default function App() {
   };
 
   const executeWithdrawal = () => {
+    if (isSubmittingWithdrawal) return;
+
     const amount = parseInt(withdrawAmount.replace(/[^0-9]/g, '')) || 0;
+
+    if (amount <= 0) {
+      triggerModal(
+        language === 'id' ? '❌ Nominal penarikan harus lebih besar dari 0!' : '❌ Withdrawal amount must be greater than 0!',
+        'warning'
+      );
+      return;
+    }
 
     if (amount < CONFIG.MIN_WITHDRAW) {
       triggerModal(
@@ -2541,9 +2532,12 @@ export default function App() {
     }
 
     if (!currentAccount) return;
+
+    setIsSubmittingWithdrawal(true);
     const wdId = 'WD-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
     createWithdrawalInSupabase(wdId, currentAccount.username, amount, withdrawBank, withdrawAccount, currentAccount.fullName).then(success => {
+      setIsSubmittingWithdrawal(false);
       if (success) {
         setWithdrawModalOpen(false);
         triggerModal(
@@ -2556,6 +2550,10 @@ export default function App() {
       } else {
         triggerModal(language === 'id' ? '❌ Gagal mengajukan penarikan.' : '❌ Failed to submit withdrawal request.', 'danger');
       }
+    }).catch(err => {
+      setIsSubmittingWithdrawal(false);
+      console.error(err);
+      triggerModal(language === 'id' ? '❌ Gagal mengajukan penarikan.' : '❌ Failed to submit withdrawal request.', 'danger');
     });
   };
 
@@ -5118,317 +5116,33 @@ export default function App() {
 
               {/* CONTRACT STORE VIEW */}
               {currentTab === 'contract' && (
-                <div className="flex flex-col gap-4">
-                  <div className="flex items-center gap-1.5 border-b border-white/5 pb-1.5 shrink-0">
-                    <ChevronLeft className="w-5 h-5 text-slate-400 cursor-pointer hover:text-white transition" onClick={() => setCurrentTab('home')} />
-                    <h2 className="text-xs font-black tracking-widest text-white uppercase">{t.contractStore}</h2>
-                  </div>
-
-                  <div className="bg-gradient-to-tr from-[#251b10] to-[#120a26] border border-gold-primary/30 rounded-xl p-2.5 flex justify-between items-center shadow-lg shrink-0 mt-1">
-                    <div className="text-left">
-                      <div className="text-[9px] font-extrabold text-gold-primary uppercase tracking-widest mb-0.5">
-                        {t.availableBalance}
-                      </div>
-                      <div className="text-lg font-black text-white font-sans tracking-wide">
-                        Rp {state.mainBalance.toLocaleString('id-ID')}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setCurrentTab('deposit')}
-                      className="px-3 py-1.5 bg-gradient-to-r from-yellow-300 to-gold-primary text-black font-extrabold rounded-lg text-[10px] tracking-wide transition cursor-pointer hover:brightness-110"
-                    >
-                      + TOP UP
-                    </button>
-                  </div>
-
-                  {/* Stock Contract Specs Product Card */}
-                  <div className="bg-gradient-to-b from-[#140b28] via-[#0d071d] to-[#07030e] border border-gold-primary/20 rounded-2xl p-5 shadow-[0_0_20px_rgba(234,179,8,0.08)] relative overflow-hidden flex flex-col gap-5 mt-1">
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-yellow-500/5 rounded-full blur-2xl pointer-events-none" />
-                    
-                    {/* 1. Judul & deskripsi */}
-                    <div className="border-b border-white/5 pb-3 text-left">
-                      <div className="flex items-center gap-2">
-                        <Coins className="w-5 h-5 text-yellow-400 shrink-0" />
-                        <div className="text-sm font-black text-gradient-gold uppercase tracking-wider font-sans">
-                          {t.stockContract}
-                        </div>
-                      </div>
-                      <div className="pl-7 mt-1">
-                        <p className="text-xs text-slate-400 leading-relaxed font-semibold">
-                          {t.contractDesc}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* 2. Harga Unit, Hasil Harian, Capping Limit */}
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="bg-[#0c061e] border border-gold-primary/10 rounded-lg p-2 flex flex-col justify-center min-h-[60px]">
-                        <span className="text-[7.5px] font-bold text-amber-500 tracking-wider uppercase mb-1">{language === 'id' ? 'HARGA UNIT' : 'UNIT PRICE'}</span>
-                        <span className="text-[11px] font-black text-white">Rp {CONFIG.PRICE_PER_UNIT.toLocaleString('id-ID')}</span>
-                        <span className="text-[7.5px] text-slate-500 font-bold uppercase mt-0.5">{t.perUnit}</span>
-                      </div>
-                      <div className="bg-[#0c061e] border border-purple-500/10 rounded-lg p-2 flex flex-col justify-center min-h-[60px]">
-                        <span className="text-[7.5px] font-bold text-amber-500 tracking-wider uppercase mb-1">{language === 'id' ? 'HASIL HARIAN' : 'DAILY YIELD'}</span>
-                        <span className="text-[11px] font-black text-emerald-400">+{(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}%</span>
-                        <span className="text-[7.5px] text-slate-500 font-bold uppercase mt-0.5">Rp {(CONFIG.PRICE_PER_UNIT * CONFIG.DAILY_REWARD_PERCENT).toLocaleString('id-ID')}</span>
-                      </div>
-                      <div className="bg-[#0c061e] border border-purple-500/10 rounded-lg p-2 flex flex-col justify-center min-h-[60px]">
-                        <span className="text-[7.5px] font-bold text-amber-500 tracking-wider uppercase mb-1">CAPPING LIMIT</span>
-                        <span className="text-[11px] font-black text-purple-300">{(CONFIG.CAPPING_PERCENT * 100).toFixed(0)}%</span>
-                        <span className="text-[7.5px] text-slate-500 font-bold uppercase mt-0.5">Rp {(CONFIG.PRICE_PER_UNIT * CONFIG.CAPPING_PERCENT).toLocaleString('id-ID')}</span>
-                      </div>
-                    </div>
-
-                    {/* 3. Informasi hasil tambang harian */}
-                    <p className="text-[10px] text-slate-300 leading-relaxed font-medium text-center bg-purple-950/25 border border-purple-900/20 rounded-xl py-2 px-3">
-                      ✨ {language === 'id' ? 'Hasil tambang harian otomatis dikreditkan langsung ke saldo akun Anda.' : 'Daily mining yields are automatically credited directly to your account balance.'}
-                    </p>
-
-                    {/* 4. Jumlah Pembelian (+ / -) */}
-                    <div className="flex justify-between items-center bg-[#0d071d] border border-white/5 rounded-xl p-3">
-                      <div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{language === 'id' ? 'JUMLAH PEMBELIAN' : 'PURCHASE QUANTITY'}</span>
-                        <span className="text-[9px] text-slate-500 font-semibold">{language === 'id' ? 'Tentukan unit kontrak' : 'Specify contract units'}</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => adjustContractQty(-1)}
-                          className="w-8 h-8 rounded-lg bg-purple-900/20 border border-purple-500/20 flex items-center justify-center text-white hover:bg-purple-900/40 active:scale-95 transition cursor-pointer"
-                        >
-                          <Minus className="w-4 h-4" />
-                        </button>
-                        <span className="text-sm font-black text-white w-6 text-center">{contractQty}</span>
-                        <button
-                          onClick={() => adjustContractQty(1)}
-                          className="w-8 h-8 rounded-lg bg-purple-900/20 border border-purple-500/20 flex items-center justify-center text-white hover:bg-purple-900/40 active:scale-95 transition cursor-pointer"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* 5. Total Pembayaran */}
-                    <div className="flex justify-between items-center bg-[#0d071d] border border-white/5 rounded-xl p-3">
-                      <div>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{language === 'id' ? 'TOTAL PEMBAYARAN' : 'TOTAL PAYMENT'}</span>
-                        <span className="text-[9px] text-slate-500 font-semibold">{language === 'id' ? 'Saldo akan terpotong otomatis' : 'Balance will be deducted automatically'}</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-base font-black text-yellow-500 font-sans">
-                          Rp {(contractQty * CONFIG.PRICE_PER_UNIT).toLocaleString('id-ID')}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* 6. Tombol "Beli Sekarang" */}
-                    <button
-                      onClick={handlePurchaseContract}
-                      className="w-full py-3 bg-gradient-to-r from-yellow-300 via-gold-primary to-yellow-600 text-black font-black rounded-xl text-xs tracking-widest uppercase transition shadow-md shadow-gold-primary/20 flex items-center justify-center gap-2 hover:brightness-110 active:scale-98 cursor-pointer"
-                    >
-                      <ShoppingCart className="w-4 h-4" />
-                      {t.buyNow}
-                    </button>
-                  </div>
-                </div>
+                <ContractPage
+                  language={language}
+                  setCurrentTab={setCurrentTab}
+                  t={t}
+                  state={state}
+                  contractQty={contractQty}
+                  adjustContractQty={adjustContractQty}
+                  handlePurchaseContract={handlePurchaseContract}
+                />
               )}
 
               {/* NETWORK VIEW */}
               {currentTab === 'network' && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 border-b border-purple-500/10 pb-3">
-                    <ChevronLeft className="w-5 h-5 text-slate-400 cursor-pointer hover:text-white transition" onClick={() => setCurrentTab('home')} />
-                    <h2 className="text-xs font-black tracking-widest text-white uppercase bg-gradient-to-r from-yellow-300 via-gold-primary to-yellow-600 bg-clip-text text-transparent font-orbitron">{t.network}</h2>
-                  </div>
-
-                  {/* High-Tech Grid Stats */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-gradient-to-b from-[#110724] to-[#0a0414] border border-purple-500/15 rounded-2xl p-4 shadow-lg relative overflow-hidden group">
-                      <div className="absolute top-0 right-0 w-16 h-16 bg-purple-500/5 rounded-full blur-xl -mr-4 -mt-4 group-hover:bg-purple-500/10 transition-all duration-300" />
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-6 h-6 rounded-lg bg-purple-500/10 flex items-center justify-center border border-purple-500/20">
-                          <Users className="w-3.5 h-3.5 text-purple-400" />
-                        </div>
-                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">{t.totalMember}</span>
-                      </div>
-                      <div className="text-lg font-black text-white pl-0.5">
-                        {totalDownlinesCount} <span className="text-[9px] text-slate-500 font-bold uppercase">{language === 'id' ? 'Mitra' : 'Members'}</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-gradient-to-b from-[#110724] to-[#0a0414] border border-purple-500/15 rounded-2xl p-4 shadow-lg relative overflow-hidden group">
-                      <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/5 rounded-full blur-xl -mr-4 -mt-4 group-hover:bg-emerald-500/10 transition-all duration-300" />
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-6 h-6 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-                          <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-                        </div>
-                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">{t.activeHolder}</span>
-                      </div>
-                      <div className="text-lg font-black text-emerald-400 pl-0.5">
-                        {activeDownlinesCount} <span className="text-[9px] text-slate-500 font-bold uppercase">{language === 'id' ? 'Aktif' : 'Active'}</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-gradient-to-b from-[#110724] to-[#0a0414] border border-purple-500/15 rounded-2xl p-4 shadow-lg relative overflow-hidden group">
-                      <div className="absolute top-0 right-0 w-16 h-16 bg-cyan-500/5 rounded-full blur-xl -mr-4 -mt-4 group-hover:bg-cyan-500/10 transition-all duration-300" />
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-6 h-6 rounded-lg bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20">
-                          <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-                        </div>
-                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">{t.totalContracts}</span>
-                      </div>
-                      <div className="text-lg font-black text-white pl-0.5">
-                        {totalDownlineContracts} <span className="text-[9px] text-slate-500 font-bold uppercase">Unit</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-gradient-to-b from-[#110724] to-[#0a0414] border border-purple-500/15 rounded-2xl p-4 shadow-lg relative overflow-hidden group">
-                      <div className="absolute top-0 right-0 w-16 h-16 bg-yellow-500/5 rounded-full blur-xl -mr-4 -mt-4 group-hover:bg-yellow-500/10 transition-all duration-300" />
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-6 h-6 rounded-lg bg-yellow-500/10 flex items-center justify-center border border-yellow-500/20">
-                          <Award className="w-3.5 h-3.5 text-yellow-400" />
-                        </div>
-                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">{t.teamVolume}</span>
-                      </div>
-                      <div className="text-base font-black text-gold-primary pl-0.5 truncate">
-                        Rp {teamVolumeValue.toLocaleString('id-ID')}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Structure Panel */}
-                  <div className="bg-gradient-to-b from-[#0f0620] to-[#080312] border border-purple-500/15 rounded-3xl p-5 shadow-xl relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl" />
-                    <div className="text-xs font-black text-gold-primary tracking-widest mb-4 uppercase flex items-center gap-2 border-b border-white/5 pb-2">
-                      <Network className="w-4 h-4 text-purple-400" />
-                      {t.downlineStructure}
-                    </div>
-
-                    <div className="space-y-2 text-xs">
-                      <div className="flex items-center justify-between p-3 rounded-xl bg-black/45 border border-purple-500/10 hover:border-purple-500/20 transition-all duration-300">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
-                          <div className="flex flex-col">
-                            <span className="text-slate-100 font-extrabold text-xs">Level 1 (Direct)</span>
-                            <span className="text-[9px] text-slate-400 font-bold">{language === 'id' ? 'Komisi Referral 10%' : '10% Referral Commission'}</span>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-xs font-black text-emerald-400">{l1Count} {language === 'id' ? 'Mitra' : 'Partners'}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between p-3 rounded-xl bg-black/45 border border-purple-500/10 hover:border-purple-500/20 transition-all duration-300">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
-                          <div className="flex flex-col">
-                            <span className="text-slate-100 font-extrabold text-xs">Level 2 (Indirect)</span>
-                            <span className="text-[9px] text-slate-400 font-bold">{language === 'id' ? 'Komisi Referral 3%' : '3% Referral Commission'}</span>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-xs font-black text-amber-400">{l2Count} {language === 'id' ? 'Mitra' : 'Partners'}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between p-3 rounded-xl bg-black/45 border border-purple-500/10 hover:border-purple-500/20 transition-all duration-300">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-2 h-2 rounded-full bg-fuchsia-400 shadow-[0_0_8px_rgba(232,121,249,0.5)]" />
-                          <div className="flex flex-col">
-                            <span className="text-slate-100 font-extrabold text-xs">Level 3 (Community)</span>
-                            <span className="text-[9px] text-slate-400 font-bold">{language === 'id' ? 'Komisi Referral 2%' : '2% Referral Commission'}</span>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-xs font-black text-fuchsia-400">{l3Count} {language === 'id' ? 'Mitra' : 'Partners'}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Referral Commissions Split */}
-                  <div className="bg-gradient-to-b from-[#0f0620] to-[#080312] border border-purple-500/15 rounded-3xl p-5 shadow-xl relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl" />
-                    <div className="text-xs font-black text-gold-primary tracking-widest mb-4 uppercase border-b border-white/5 pb-2 flex items-center gap-2">
-                      <Wallet className="w-4 h-4 text-purple-400" />
-                      {t.referralCommission}
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2.5 text-center text-xs font-semibold">
-                      <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
-                        <div className="text-lg font-black text-emerald-400">10%</div>
-                        <span className="text-[8px] text-slate-400 font-bold block mb-1">LEVEL 1</span>
-                        <div className="text-[10px] font-bold text-white truncate">Rp {(state.referralEarned * 0.65).toLocaleString('id-ID', { maximumFractionDigits: 0 })}</div>
-                      </div>
-                      <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/10">
-                        <div className="text-lg font-black text-amber-400">3%</div>
-                        <span className="text-[8px] text-slate-400 font-bold block mb-1">LEVEL 2</span>
-                        <div className="text-[10px] font-bold text-white truncate">Rp {(state.referralEarned * 0.25).toLocaleString('id-ID', { maximumFractionDigits: 0 })}</div>
-                      </div>
-                      <div className="p-3 rounded-xl bg-fuchsia-500/5 border border-fuchsia-500/10">
-                        <div className="text-lg font-black text-fuchsia-400">2%</div>
-                        <span className="text-[8px] text-slate-400 font-bold block mb-1">LEVEL 3</span>
-                        <div className="text-[10px] font-bold text-white truncate">Rp {(state.referralEarned * 0.1).toLocaleString('id-ID', { maximumFractionDigits: 0 })}</div>
-                      </div>
-                    </div>
-
-                    <div className="bg-purple-950/25 border border-purple-500/15 rounded-2xl p-4 text-center mt-4">
-                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">{t.totalCommission}</span>
-                      <div className="text-xl font-black bg-gradient-to-r from-yellow-300 via-gold-primary to-yellow-600 bg-clip-text text-transparent font-orbitron mt-1">
-                        Rp {state.referralEarned.toLocaleString('id-ID')}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* LEADERBOARD PREVIEW CARD */}
-                  <div className="bg-gradient-to-b from-[#0f0620] to-[#080312] border border-purple-500/15 rounded-3xl p-5 shadow-xl relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl" />
-                    <div className="text-xs font-black text-gold-primary tracking-widest mb-4 uppercase flex items-center justify-between border-b border-white/5 pb-2">
-                      <div className="flex items-center gap-1.5">
-                        <Trophy className="w-4.5 h-4.5 text-yellow-400" />
-                        {language === 'id' ? 'Peringkat Penambang' : 'Mining Leaderboard'}
-                      </div>
-                      <button
-                        onClick={() => setCurrentTab('leaderboard')}
-                        className="text-[9.5px] text-yellow-400 hover:text-white font-extrabold transition uppercase tracking-wider active:scale-95 cursor-pointer"
-                      >
-                        {language === 'id' ? 'Lihat Semua ➔' : 'View All ➔'}
-                      </button>
-                    </div>
-
-                    <div className="divide-y divide-white/5 space-y-1.5">
-                      {leaderboardData.length === 0 ? (
-                        <div className="py-4 text-center text-xs text-slate-500 font-medium">
-                          {language === 'id' ? 'Belum ada data leaderboard' : 'No leaderboard data available yet'}
-                        </div>
-                      ) : (
-                        leaderboardData.slice(0, 3).map((entry, index) => {
-                          const rank = index + 1;
-                          const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : "🥉";
-                          const goldVal = entry.goldAllTime;
-
-                          return (
-                            <div 
-                              key={entry.username} 
-                              onClick={() => setCurrentTab('leaderboard')}
-                              className="flex items-center justify-between py-2 hover:bg-white/5 px-1.5 rounded-xl transition cursor-pointer"
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <span className="text-base">{medal}</span>
-                                <span className="text-xs font-bold text-slate-100">{entry.username}</span>
-                                {entry.vipLevel > 0 && (
-                                  <span className="text-[7.5px] bg-yellow-600/10 text-yellow-400 border border-yellow-500/20 px-1 py-0.5 rounded leading-none font-bold">
-                                    VIP {entry.vipLevel}
-                                  </span>
-                                )}
-                              </div>
-                              <span className="text-xs font-black text-gold-primary font-mono">{goldVal.toFixed(4)} GLD</span>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <NetworkPage
+                  language={language}
+                  setCurrentTab={setCurrentTab}
+                  t={t}
+                  totalDownlinesCount={totalDownlinesCount}
+                  activeDownlinesCount={activeDownlinesCount}
+                  totalDownlineContracts={totalDownlineContracts}
+                  teamVolumeValue={teamVolumeValue}
+                  l1Count={l1Count}
+                  l2Count={l2Count}
+                  l3Count={l3Count}
+                  state={state}
+                  leaderboardData={leaderboardData}
+                />
               )}
 
               {/* DEDICATED GLOBAL LEADERBOARD VIEW */}
@@ -5460,158 +5174,19 @@ export default function App() {
 
               {/* WALLET VIEW */}
               {currentTab === 'wallet' && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 border-b border-white/5 pb-3">
-                    <ChevronLeft className="w-5 h-5 text-slate-400 cursor-pointer" onClick={() => setCurrentTab('home')} />
-                    <h2 className="text-sm font-black tracking-widest text-white uppercase">{t.wallet}</h2>
-                  </div>
-
-                  {/* Split balances card */}
-                  <div className="bg-gradient-to-br from-[#120a26] to-[#040108] border border-gold-primary/30 rounded-3xl p-5 shadow-2xl relative">
-                    <span className="text-[10px] font-black text-slate-400 tracking-wider block mb-1.5 uppercase">
-                      {t.totalBalance}
-                    </span>
-                    <div className="text-3xl font-black text-gradient-gold font-orbitron mb-5">
-                      Rp {(state.mainBalance + totalEarned).toLocaleString('id-ID')}
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
-                      <div>
-                        <span className="text-[9px] text-slate-400 font-bold block mb-1">{t.mainBalance}</span>
-                        <div className="text-sm font-black text-white">
-                          Rp {state.mainBalance.toLocaleString('id-ID')}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[9px] text-slate-400 font-bold block mb-1">{t.rewardBalance}</span>
-                        <div className="text-sm font-black text-gold-primary">
-                          Rp {totalEarned.toLocaleString('id-ID')}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2.5">
-                    <button
-                      onClick={() => setCurrentTab('deposit')}
-                      className="py-3 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 text-emerald-400 rounded-2xl text-[10px] font-extrabold transition flex flex-col items-center gap-1.5 shadow-md"
-                    >
-                      <ArrowDown className="w-4 h-4" />
-                      {t.deposit}
-                    </button>
-                    <button
-                      onClick={triggerWithdrawFlow}
-                      className="py-3 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 text-rose-400 rounded-2xl text-[10px] font-extrabold transition flex flex-col items-center gap-1.5 shadow-md"
-                    >
-                      <ArrowUp className="w-4 h-4" />
-                      {t.withdraw}
-                    </button>
-                    <button
-                      onClick={handleClaimYield}
-                      className="py-3 bg-gradient-to-br from-yellow-300 to-gold-primary text-black rounded-2xl text-[10px] font-black transition flex flex-col items-center gap-1.5 shadow-lg shadow-gold-primary/10"
-                    >
-                      <Coins className="w-4 h-4" />
-                      KLAIM REWARD
-                    </button>
-                  </div>
-
-                  {/* Earnings detail */}
-                  <div className="bg-[#0e061c] border border-white/5 rounded-3xl p-5 shadow-xl">
-                    <div className="text-xs font-black text-gold-primary tracking-widest mb-4 uppercase">
-                      {t.earningsDetail}
-                    </div>
-
-                    <div className="space-y-3 font-semibold text-xs text-slate-300">
-                      <div className="flex justify-between border-b border-white/5 pb-2">
-                        <span className="text-slate-400">📊 {t.totalEarned}</span>
-                        <span className="text-white font-extrabold">Rp {totalEarned.toLocaleString('id-ID')}</span>
-                      </div>
-                      <div className="flex justify-between border-b border-white/5 pb-2">
-                        <span className="text-slate-400">⛏️ Mining Profit</span>
-                        <span className="text-emerald-400 font-extrabold">Rp {miningProfit.toLocaleString('id-ID')}</span>
-                      </div>
-                      <div className="flex justify-between border-b border-white/5 pb-2">
-                        <span className="text-slate-400">💰 {language === 'id' ? 'Claim Harian 2%' : 'Daily Claim 2%'}</span>
-                        <span className="text-emerald-400 font-extrabold">Rp {miningProfit.toLocaleString('id-ID')}</span>
-                      </div>
-                      <div className="flex justify-between border-b border-white/5 pb-2">
-                        <span className="text-slate-400">👥 Referral Reward</span>
-                        <span className="text-amber-400 font-extrabold">Rp {referralReward.toLocaleString('id-ID')}</span>
-                      </div>
-                      <div className="flex justify-between border-b border-white/5 pb-2">
-                        <span className="text-slate-400">🔄 Rebate Reward</span>
-                        <span className="text-fuchsia-400 font-extrabold">Rp {rebateReward.toLocaleString('id-ID')}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">🎁 Bonus</span>
-                        <span className="text-blue-400 font-extrabold">Rp {bonusReward.toLocaleString('id-ID')}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* TRANSACTION HISTORY */}
-                  <div className="bg-[#0e061c] border border-white/5 rounded-3xl p-5 shadow-xl">
-                    <div className="text-xs font-black text-gold-primary tracking-widest mb-4 uppercase flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <History className="w-4.5 h-4.5" />
-                        {t.txHistory}
-                      </div>
-                      <button 
-                        onClick={() => setCurrentTab('transactions')}
-                        className="text-[10px] text-amber-400 font-extrabold hover:underline flex items-center gap-0.5 cursor-pointer bg-transparent border-none p-0 outline-none"
-                      >
-                        {language === 'id' ? 'Lihat Semua' : 'View All'}
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
-                      {state.transactions.length === 0 ? (
-                        <div className="text-center py-8 text-slate-500 font-bold text-xs space-y-1">
-                          <div>{t.emptyTx}</div>
-                        </div>
-                      ) : (
-                        state.transactions.map((tx) => (
-                          <div key={tx.id} className="flex justify-between items-center py-2.5 border-b border-white/5 last:border-none">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${
-                                tx.type === 'deposit'
-                                  ? 'bg-emerald-500/10 text-emerald-400'
-                                  : tx.type === 'withdraw'
-                                  ? 'bg-rose-500/10 text-rose-400'
-                                  : 'bg-gold-primary/10 text-gold-primary'
-                              }`}>
-                                {tx.type === 'deposit' ? <ArrowDown className="w-4 h-4" /> : tx.type === 'withdraw' ? <ArrowUp className="w-4 h-4" /> : <Gift className="w-4 h-4" />}
-                              </div>
-                              <div>
-                                <span className="text-xs font-bold text-white block leading-tight">{tx.description}</span>
-                                {tx.type === 'deposit' && tx.rejectionReason && (
-                                  <span className="text-[10px] text-rose-400 font-bold bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-md mt-1 inline-block leading-tight">
-                                    {language === 'id' ? `Alasan: ${tx.rejectionReason}` : `Reason: ${tx.rejectionReason}`}
-                                  </span>
-                                )}
-                                <span className="text-[9px] text-slate-400 block mt-0.5">
-                                  {new Date(tx.date).toLocaleDateString(language === 'id' ? 'id-ID' : 'en-US', {
-                                    day: '2-digit',
-                                    month: 'short',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}
-                                </span>
-                              </div>
-                            </div>
-
-                            <span className={`text-xs font-black ${
-                              tx.type === 'deposit' || tx.type === 'reward' ? 'text-emerald-400' : 'text-rose-400'
-                            }`}>
-                              {tx.type === 'deposit' || tx.type === 'reward' ? '+' : '-'} Rp {tx.amount.toLocaleString('id-ID')}
-                            </span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <WalletPage
+                  language={language}
+                  setCurrentTab={setCurrentTab}
+                  t={t}
+                  state={state}
+                  totalEarned={totalEarned}
+                  triggerWithdrawFlow={triggerWithdrawFlow}
+                  handleClaimYield={handleClaimYield}
+                  miningProfit={miningProfit}
+                  referralReward={referralReward}
+                  rebateReward={rebateReward}
+                  bonusReward={bonusReward}
+                />
               )}
 
               {/* REWARDS VIEW */}
@@ -6855,80 +6430,7 @@ export default function App() {
 
               {/* SYSTEM NOTIFICATIONS VIEW */}
               {currentTab === 'notifications' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="space-y-4 text-left"
-                >
-                  <div className="flex items-center gap-2 border-b border-white/5 pb-3">
-                    <ChevronLeft className="w-5 h-5 text-slate-400 cursor-pointer hover:text-white transition" onClick={() => setCurrentTab('home')} />
-                    <h2 className="text-sm font-black tracking-widest text-white uppercase">
-                      {language === 'id' ? 'Notifikasi Sistem' : 'System Notifications'}
-                    </h2>
-                  </div>
-
-                  <div className="bg-[#0e061c] border border-white/5 rounded-3xl p-5 shadow-xl space-y-4">
-                    <div className="flex justify-between items-center border-b border-white/5 pb-3">
-                      <span className="text-xs font-bold text-gold-primary uppercase tracking-wider">
-                        {language === 'id' ? 'Pemberitahuan Terbaru' : 'Recent Bulletins'}
-                      </span>
-                      <span className="text-[9px] bg-gold-primary/10 border border-gold-primary/30 text-gold-primary px-2 py-0.5 rounded font-black font-mono uppercase">
-                        {language === 'id' ? 'Aktif' : 'Live'}
-                      </span>
-                    </div>
-
-                    <div className="space-y-3.5 max-h-[400px] overflow-y-auto pr-1">
-                      {[
-                        {
-                          id: 1,
-                          title: language === 'id' ? 'Sistem Cloud Penambangan Stabil' : 'Cloud Mining Fleets Stabilized',
-                          desc: language === 'id' ? 'Semua unit ekskavator di Randgold West Africa beroperasi dengan efisiensi puncak 98.4%.' : 'All excavator fleets in Randgold West Africa are operating at peak efficiency of 98.4%.',
-                          time: '14 Jul 2026, 10:24',
-                          type: 'success'
-                        },
-                        {
-                          id: 2,
-                          title: language === 'id' ? 'Kemitraan Emas Randgold Resources' : 'Randgold Resources Partnership Active',
-                          desc: language === 'id' ? 'GrockGold Mining mengesahkan audit sertifikat kepemilikan kuartal ini untuk keandalan penarikan.' : 'GrockGold Mining verified this quarter’s certificate audit to ensure flawless and secure liquidity withdrawals.',
-                          time: '13 Jul 2026, 08:12',
-                          type: 'info'
-                        },
-                        {
-                          id: 3,
-                          title: language === 'id' ? 'Keamanan Enkripsi Lapis Dua Berjalan' : 'Two-Factor Secure Tunnel Enforced',
-                          desc: language === 'id' ? 'Akses sistem diamankan penuh secara real-time. Hubungi admin untuk keluhan kode OTP.' : 'Terminal access is fully encrypted in real-time. Contact official admins for any access issues.',
-                          time: '12 Jul 2026, 15:45',
-                          type: 'info'
-                        },
-                        {
-                          id: 4,
-                          title: language === 'id' ? 'Program Welcome Bonus Deposit' : 'New Member Welcome Bonus Open',
-                          desc: language === 'id' ? 'Dapatkan Rp 1.800.000 dengan mengumpulkan 80 mitra aktif di struktur jaringan penambangan Anda.' : 'Claim Rp 1,800,000 by accumulating 80 active depositors with at least 1 Stock Contract in your networks.',
-                          time: '10 Jul 2026, 09:00',
-                          type: 'warning'
-                        }
-                      ].map((n) => (
-                        <div key={n.id} className="p-4 bg-black/45 border border-white/5 rounded-2xl flex gap-3 text-left">
-                          <div className="mt-0.5 shrink-0">
-                            <div className={`p-1.5 rounded-lg border ${
-                              n.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
-                              n.type === 'warning' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' :
-                              'bg-purple-500/10 border-purple-500/20 text-cyan-400'
-                            }`}>
-                              <Bell className="w-3.5 h-3.5" />
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-xs font-extrabold text-white block leading-tight">{n.title}</span>
-                            <span className="text-[10px] text-slate-400 font-medium block mt-1 leading-relaxed">{n.desc}</span>
-                            <span className="text-[8px] font-mono font-bold text-slate-600 uppercase block mt-2">{n.time}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </motion.div>
+                <NotificationsPage language={language} setCurrentTab={setCurrentTab} />
               )}
 
 
@@ -7269,117 +6771,12 @@ export default function App() {
 
               {/* HELP & SUPPORT VIEW */}
               {currentTab === 'help' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="space-y-4 text-left"
-                >
-                  <div className="flex items-center gap-2 border-b border-white/5 pb-3">
-                    <ChevronLeft className="w-5 h-5 text-slate-400 cursor-pointer hover:text-white transition" onClick={() => setCurrentTab('home')} />
-                    <h2 className="text-sm font-black tracking-widest text-white uppercase">
-                      {language === 'id' ? 'Pusat Bantuan' : 'Help Center'}
-                    </h2>
-                  </div>
-
-                  <div className="bg-[#0e061c] border border-white/5 rounded-3xl p-5 shadow-xl space-y-4">
-                    <div className="text-xs font-black text-gold-primary uppercase tracking-wider flex items-center gap-2 border-b border-white/5 pb-2">
-                      <HelpCircle className="w-4 h-4 text-gold-primary" />
-                      {language === 'id' ? 'Pertanyaan Umum (FAQ)' : 'Frequently Asked Questions'}
-                    </div>
-
-                    <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
-                      {[
-                        {
-                          q: language === 'id' ? 'Bagaimana cara membeli Kontrak Emas?' : 'How do I purchase Gold Contracts?',
-                          a: language === 'id' ? 'Anda dapat menyetor dana Anda di menu Wallet -> Deposit. Setelah itu, buka menu Kontrak, tentukan jumlah unit yang diinginkan, lalu ketuk tombol "Beli Sekarang". Kontrak langsung aktif berproduksi.' : 'First top up your balance via Wallet -> Deposit. Once your balance is loaded, navigate to the Contracts page, input your desired unit quantity, and click "Buy Now".'
-                        },
-                        {
-                          q: language === 'id' ? 'Berapa persentase hasil harian?' : 'What is the daily mining yield rate?',
-                          a: language === 'id' ? `Setiap kontrak aktif memberikan tingkat hasil harian sebesar ${(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}% langsung ke saldo reward Anda sampai mencapai batas capping penambangan 250%.` : `Each active contract guarantees a premium ${(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}% daily yield credited straight to your Reward Balance, running continuously until reaching 250% capping.`
-                        },
-                        {
-                          q: language === 'id' ? 'Apa yang dimaksud batas Capping 250%?' : 'What is the 250% capping limit?',
-                          a: language === 'id' ? 'Capping adalah batas maksimal pendapatan kontrak Anda (2.5 kali modal beli). Jika Anda membeli kontrak senilai Rp 1.000.000, penambangan otomatis berhenti saat total hasil mencapai Rp 2.500.000.' : 'Capping is the maximum lifetime earning capacity of your contract (2.5x principal). For instance, a Rp 1,000,000 contract produces up to Rp 2,500,000 in total mining yields.'
-                        },
-                        {
-                          q: language === 'id' ? 'Bagaimana sistem komisi MLM / Network?' : 'How does the network MLM system work?',
-                          a: language === 'id' ? 'Sistem kami menggunakan struktur bertingkat: Komisi Sponsor Utama (10%), Rebate Level 1 (5%), dan Level 2 (2%). Komisi langsung masuk ke saldo tunai dan meningkatkan progress capping Anda.' : 'We operate a multi-level referral hierarchy: Direct Sponsor incentives (10%), Generation Level 1 rebates (5%), and Level 2 rebates (2%). Commissions directly load to your balance.'
-                        }
-                      ].map((faq, i) => (
-                        <div key={i} className="p-3 bg-black/40 border border-white/5 rounded-2xl text-left space-y-1.5">
-                          <span className="text-xs font-black text-gold-primary block">Q: {faq.q}</span>
-                          <span className="text-[10px] text-slate-300 font-medium block leading-relaxed">A: {faq.a}</span>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="pt-2">
-                      <button
-                        onClick={() => triggerModal('💬 Layanan Pelanggan GROCKGOLD Telegram Support:<br><b>@GrockGold_Support_Bot</b><br><br>Email: support@grockgold.com<br>Waktu Respons: 24/7 Live.', 'info')}
-                        className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-gold-primary font-bold rounded-2xl text-xs uppercase transition flex items-center justify-center gap-2"
-                      >
-                        HUBUNGI CUSTOMER SERVICE
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
+                <HelpPage language={language} setCurrentTab={setCurrentTab} triggerModal={triggerModal} />
               )}
 
               {/* ABOUT US VIEW */}
               {currentTab === 'about' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="space-y-4 text-left"
-                >
-                  <div className="flex items-center gap-2 border-b border-white/5 pb-3">
-                    <ChevronLeft className="w-5 h-5 text-slate-400 cursor-pointer hover:text-white transition" onClick={() => setCurrentTab('home')} />
-                    <h2 className="text-sm font-black tracking-widest text-white uppercase">
-                      {language === 'id' ? 'Tentang Kami' : 'About Us'}
-                    </h2>
-                  </div>
-
-                  <div className="bg-[#0e061c] border border-gold-primary/25 rounded-3xl p-5 shadow-xl space-y-4">
-                    <div className="flex justify-center mb-1">
-                      <span className="text-lg font-black tracking-widest bg-gradient-to-r from-yellow-300 via-gold-primary to-yellow-600 bg-clip-text text-transparent font-orbitron">
-                        GROCKGOLD
-                      </span>
-                    </div>
-
-                    <div className="text-[11px] text-slate-300 font-semibold leading-relaxed text-center whitespace-pre-line border-b border-white/5 pb-4">
-                      {language === 'id' ? (
-                        'GrockGold Mining Ltd adalah perusahaan penambangan dan pengelolaan portofolio komersial berskala internasional yang terafiliasi resmi dengan Randgold Resources West Africa.\n\nKami mengintegrasikan teknologi cloud hashing penambangan canggih untuk memberikan jaminan aksesibilitas portofolio berkinerja tinggi bagi seluruh mitra terdaftar.'
-                      ) : (
-                        'GrockGold Mining Ltd is a premium international gold mining operations and asset platform, officially partnered with Randgold Resources West Africa.\n\nWe build advanced high-throughput cloud hashing solutions that enable transparent, stable, and highly rewarding digital gold mining contract investment fleets.'
-                      )}
-                    </div>
-
-                    <div className="space-y-2 text-xs font-semibold text-slate-300">
-                      <div className="flex justify-between py-1 border-b border-white/5">
-                        <span className="text-slate-400">{t.company}</span>
-                        <span className="text-white text-right">GrockGold Mining Ltd.</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-white/5">
-                        <span className="text-slate-400">{t.license}</span>
-                        <span className="text-white">12345/MINING/2026-REG</span>
-                      </div>
-                      <div className="flex justify-between py-1">
-                        <span className="text-slate-400">{t.regulated}</span>
-                        <span className="text-white text-right">Ministry of Energy & Minerals Registry</span>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => triggerModal(`📄 Official License & Certifications Of GrockGold Mining.<br><br>Issuer: Ministry of Energy & Minerals Registry<br>Registered Entity: GrockGold Mining Ltd.<br>Verification Hash: #SHA256-GGM998162816B<br>Status: LICENSED & COMPLIANT`, 'success')}
-                      className="w-full py-3.5 bg-gradient-to-r from-yellow-300 via-gold-primary to-yellow-600 text-black font-extrabold rounded-2xl text-xs tracking-wider uppercase transition shadow-lg flex items-center justify-center gap-2"
-                    >
-                      <Download className="w-4 h-4" />
-                      DOWNLOAD LEGAL DOCUMENT
-                    </button>
-                  </div>
-                </motion.div>
+                <AboutPage language={language} setCurrentTab={setCurrentTab} triggerModal={triggerModal} />
               )}
 
             </div>
@@ -8099,26 +7496,5 @@ export default function App() {
         onClose={() => setModalOpen(false)}
       />
     </div>
-  );
-}
-
-// Simple internal helper icon to bypass legacy styles safely
-function ClockIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
   );
 }
