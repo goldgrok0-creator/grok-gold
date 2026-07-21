@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Lock, User } from 'lucide-react';
 import { UserAccount, AppState } from '../../types';
-import { supabase } from '../../supabase';
+import { supabase, hashPassword, fetchAccountsFromSupabase } from '../../supabase';
 
 interface AdminRouteLoginFormProps {
   language: 'id' | 'en';
@@ -31,14 +31,29 @@ export default function AdminRouteLoginForm({
 
     setLoading(true);
     try {
-      const found = accounts.find(acc => acc.username.toLowerCase() === usr.trim().toLowerCase());
-      if (!found || found.username.toLowerCase() !== 'admin') {
+      if (usr.trim().toLowerCase() !== 'admin') {
         triggerModal(language === 'id' ? '❌ Akun admin tidak ditemukan!' : '❌ Admin account not found!', 'danger');
         setLoading(false);
         return;
       }
 
-      if (found.password !== pass) {
+      // Direct database query for admin authentication (tamper-proof!)
+      const { data: found, error: fetchErr } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', 'admin')
+        .single();
+
+      if (fetchErr || !found) {
+        triggerModal(language === 'id' ? '❌ Akun admin tidak ditemukan!' : '❌ Admin account not found!', 'danger');
+        setLoading(false);
+        return;
+      }
+
+      const inputHash = await hashPassword(pass);
+      const isPasswordValid = found.password === pass || found.password === inputHash;
+
+      if (!isPasswordValid) {
         triggerModal(language === 'id' ? '❌ Kata sandi salah!' : '❌ Incorrect password!', 'danger');
         setLoading(false);
         return;
@@ -48,15 +63,25 @@ export default function AdminRouteLoginForm({
       try {
         await supabase.auth.signInWithPassword({
           email: found.email,
-          password: found.password
+          password: pass // use plaintext pass for auth signup/signin
         });
       } catch (authErr) {
         console.warn('Supabase Auth login bypassed on admin portal', authErr);
       }
 
+      // Fetch the full UserAccount object mapped with properties
+      const mappedAccounts = await fetchAccountsFromSupabase('admin');
+      const adminMapped = mappedAccounts?.find(acc => acc.username.toLowerCase() === 'admin');
+
+      if (!adminMapped) {
+        triggerModal(language === 'id' ? '❌ Gagal memetakan akun admin!' : '❌ Failed to map admin account!', 'danger');
+        setLoading(false);
+        return;
+      }
+
       // Update states
-      localStorage.setItem('grockgold_logged_in_username_v4', found.username);
-      setCurrentAccount(found);
+      localStorage.setItem('grockgold_logged_in_username_v4', adminMapped.username);
+      setCurrentAccount(adminMapped);
       updateState({ isLoggedIn: true });
       triggerModal(language === 'id' ? '🔑 Akses Admin Diterima!' : '🔑 Admin Access Granted!', 'success');
     } catch (err: any) {

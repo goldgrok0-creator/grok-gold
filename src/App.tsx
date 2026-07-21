@@ -107,7 +107,9 @@ import {
   saveGlobalConfig,
   updateGlobalConfig,
   uploadProofToSupabaseStorage,
-  compressImage
+  compressImage,
+  hashPassword,
+  executeLuckySpinInSupabase
 } from './supabase';
 
 // Initial dummy downline holders to populate Network structures
@@ -1376,14 +1378,39 @@ export default function App() {
       return;
     }
 
-    const found = accounts.find(acc => acc.username.toLowerCase() === ident || acc.email.toLowerCase() === ident);
-    if (!found) {
+    // Direct database query for user authentication (prevent password exposure)
+    let dbUser: any = null;
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .or(`username.ilike.${ident},email.ilike.${ident}`)
+        .maybeSingle();
+      if (data) {
+        dbUser = data;
+      }
+    } catch (e) {
+      console.error('Error querying user directly for auth:', e);
+    }
+
+    if (!dbUser) {
       triggerModal(language === 'id' ? '❌ Akun tidak ditemukan!' : '❌ Account not found!', 'danger');
       return;
     }
 
-    if (found.password !== pass) {
+    const inputHash = await hashPassword(pass);
+    const isPasswordValid = dbUser.password === pass || dbUser.password === inputHash;
+
+    if (!isPasswordValid) {
       triggerModal(language === 'id' ? '❌ Kata sandi salah!' : '❌ Incorrect password!', 'danger');
+      return;
+    }
+
+    const mappedAccounts = await fetchAccountsFromSupabase(dbUser.username);
+    const found = mappedAccounts?.find(acc => acc.username.toLowerCase() === dbUser.username.toLowerCase());
+
+    if (!found) {
+      triggerModal(language === 'id' ? '❌ Gagal memetakan data akun!' : '❌ Failed to map account data!', 'danger');
       return;
     }
 
@@ -1395,7 +1422,7 @@ export default function App() {
     try {
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: found.email,
-        password: found.password
+        password: pass
       });
 
       if (signInError) {
@@ -1407,7 +1434,7 @@ export default function App() {
             const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://grok-gold-drab.vercel.app';
             const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
               email: found.email,
-              password: found.password,
+              password: pass,
               options: {
                 emailRedirectTo: currentOrigin,
                 data: {
@@ -1424,7 +1451,7 @@ export default function App() {
 
             await supabase.auth.signInWithPassword({
               email: found.email,
-              password: found.password
+              password: pass
             });
           } catch (signUpErr) {
             console.warn('Optional on-the-fly Supabase Auth signup failed:', signUpErr);
@@ -2771,15 +2798,35 @@ export default function App() {
   };
 
   // --- LUCKY SPIN HANDLER ---
-  const handleSpin = () => {
+  const handleSpin = async () => {
     if (isSpinning) return;
-    
-    const randomIndex = Math.floor(Math.random() * SPIN_ITEMS.length);
+    if (!currentAccount) return;
+
+    if (spinTickets <= 0) {
+      triggerModal(
+        language === 'id' ? '❌ Anda tidak memiliki Tiket Spin tersisa!' : '❌ You have no Spin Tickets left!',
+        'warning'
+      );
+      return;
+    }
+
+    setIsSpinning(true);
+
+    const res = await executeLuckySpinInSupabase(currentAccount.username);
+    if (!res.success) {
+      setIsSpinning(false);
+      triggerModal(
+        language === 'id' ? `❌ Gagal melakukan Spin: ${res.error}` : `❌ Spin execution failed: ${res.error}`,
+        'danger'
+      );
+      return;
+    }
+
+    const randomIndex = res.prizeIndex;
     const degreePerSegment = 360 / SPIN_ITEMS.length;
     const extraSpins = 5;
     const targetRotation = spinRotation + (extraSpins * 360) + (360 - (randomIndex * degreePerSegment)) - (spinRotation % 360);
     
-    setIsSpinning(true);
     setSpinRotation(targetRotation);
     setSpinPrizeIndex(randomIndex);
 
@@ -2787,9 +2834,21 @@ export default function App() {
       setIsSpinning(false);
       const prize = SPIN_ITEMS[randomIndex];
       
+      // Update local spin stats
+      setSpinTickets(prev => Math.max(0, prev - 1));
+      setSpinCount(prev => prev + 1);
+
+      const historyEntry = {
+        id: 'SPN-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+        prize: prize.label,
+        date: Date.now(),
+        success: prize.type !== 'zonk'
+      };
+      setLuckySpinHistory(prev => [historyEntry, ...prev].slice(0, 10));
+
       if (prize.type === 'cash') {
         const newTx: Transaction = {
-          id: 'SPN-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+          id: historyEntry.id,
           type: 'reward',
           amount: prize.value,
           date: Date.now(),

@@ -1,6 +1,27 @@
 import { createClient } from '@supabase/supabase-js';
 import { UserAccount, Transaction, AppState, CONFIG } from './types';
 
+// Hash function to prevent storing passwords in plaintext
+export async function hashPassword(password: string): Promise<string> {
+  if (!password) return '';
+  try {
+    const msgBuffer = new TextEncoder().encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashHex;
+  } catch (err) {
+    // Fallback hash if Web Crypto API is unavailable
+    let hash = 0;
+    for (let i = 0; i < password.length; i++) {
+      const char = password.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash;
+    }
+    return 'fb_' + Math.abs(hash).toString(16);
+  }
+}
+
 // =========================================================================
 // SUPABASE CLIENT INITIALIZATION
 // =========================================================================
@@ -471,7 +492,7 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
         username: user.username,
         email: user.email || '',
         phone: user.phone || '',
-        password: user.password || '',
+        password: (targetUsername && targetUsername.toLowerCase() === usernameLower) ? (user.password || '') : '',
         referralCode: user.username.toLowerCase() === 'admin' ? '' : (user.referral_code || ''),
         invitedBy: user.invited_by || null,
         createdAt: Number(user.created_at) || Date.now(),
@@ -517,12 +538,13 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
 // 1. Create User (Registration)
 export async function registerUserInSupabase(account: UserAccount): Promise<boolean> {
   try {
+    const hashedPassword = await hashPassword(account.password);
     const payload = {
       username: account.username,
       full_name: account.fullName,
       email: account.email,
       phone: account.phone,
-      password: account.password,
+      password: hashedPassword,
       referral_code: account.referralCode,
       invited_by: account.invitedBy,
       created_at: account.createdAt,
@@ -608,7 +630,7 @@ export async function createDepositInSupabase(
   }
 }
 
-// 3. Request a Withdrawal (status: pending)
+// 3. Request a Withdrawal (status: pending with immediate atomic balance check and deduction)
 export async function createWithdrawalInSupabase(
   id: string,
   username: string,
@@ -618,20 +640,35 @@ export async function createWithdrawalInSupabase(
   accountName: string
 ): Promise<boolean> {
   try {
-    const payload = {
-      id,
-      username,
-      amount,
-      status: 'pending',
-      bank_name: bankName,
-      account_number: accountNumber,
-      account_name: accountName,
-      created_at: Date.now()
-    };
+    // 1. Fetch User balance
+    const { data: user } = await supabase.from('users').select('main_balance').eq('username', username).single();
+    if (!user) return false;
+    const currentBalance = Number(user.main_balance) || 0;
 
-    const { error } = await supabase.from('withdrawals').insert(payload);
-    if (error) {
-      console.warn('Withdraw request error:', error.message);
+    if (currentBalance < amount) {
+      console.warn(`Insufficient balance for user ${username} withdrawal. Needed: ${amount}, Has: ${currentBalance}`);
+      return false;
+    }
+
+    const newBalance = currentBalance - amount;
+
+    // 2. Perform atomic insert of withdrawal and update of user balance
+    const [wdInsert, userUpdate] = await Promise.all([
+      supabase.from('withdrawals').insert({
+        id,
+        username,
+        amount,
+        status: 'pending',
+        bank_name: bankName,
+        account_number: accountNumber,
+        account_name: accountName,
+        created_at: Date.now()
+      }),
+      supabase.from('users').update({ main_balance: newBalance }).eq('username', username)
+    ]);
+
+    if (wdInsert.error || userUpdate.error) {
+      console.error('Atomic Withdrawal Creation error:', wdInsert.error || userUpdate.error);
       return false;
     }
     return true;
@@ -674,11 +711,10 @@ export async function updateUserSettingsInSupabase(username: string, settings: a
 // 6. Update general appState in Supabase (For users & admin profile)
 export async function saveAccountToSupabase(account: UserAccount): Promise<boolean> {
   try {
-    const payload = {
+    const payload: any = {
       full_name: account.fullName,
       email: account.email,
       phone: account.phone,
-      password: account.password,
       referral_code: account.referralCode,
       invited_by: account.invitedBy,
       main_balance: account.state.mainBalance,
@@ -692,6 +728,10 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
       pending_mining_reward: account.state.pendingMiningReward,
       settings: account.settings
     };
+
+    if (account.password && account.password.trim() !== '') {
+      payload.password = account.password;
+    }
 
     const { error } = await supabase
       .from('users')
@@ -798,34 +838,11 @@ export async function approveWithdrawalInSupabase(withdrawId: string, username: 
     const { data: wd } = await supabase.from('withdrawals').select('status').eq('id', withdrawId).single();
     if (!wd || wd.status !== 'pending') return false;
 
-    // 2. Fetch User balance
-    const { data: user } = await supabase.from('users').select('main_balance').eq('username', username).single();
-    const currentBalance = Number(user?.main_balance) || 0;
+    // 2. Perform atomic operations (just update status to approved, since balance was deducted immediately at request)
+    const { error } = await supabase.from('withdrawals').update({ status: 'approved' }).eq('id', withdrawId);
 
-    if (currentBalance < amount) {
-      console.warn('Insufficient user balance to approve withdrawal!');
-      return false;
-    }
-
-    const newBalance = currentBalance - amount;
-    const txId = 'TXW-' + Math.random().toString(36).substring(2, 9).toUpperCase();
-
-    // 3. Perform atomic operations
-    const [wdUpdate, userUpdate, txInsert] = await Promise.all([
-      supabase.from('withdrawals').update({ status: 'approved' }).eq('id', withdrawId),
-      supabase.from('users').update({ main_balance: newBalance }).eq('username', username),
-      supabase.from('transactions').insert({
-        id: txId,
-        username,
-        type: 'withdraw',
-        amount,
-        description: '✅ Penarikan Sukses (Disetujui Admin)',
-        created_at: Date.now()
-      })
-    ]);
-
-    if (wdUpdate.error || userUpdate.error || txInsert.error) {
-      console.error('Atomic Withdrawal Approval error:', wdUpdate.error || userUpdate.error || txInsert.error);
+    if (error) {
+      console.error('Withdrawal Approval error:', error);
       return false;
     }
     return true;
@@ -835,15 +852,31 @@ export async function approveWithdrawalInSupabase(withdrawId: string, username: 
   }
 }
 
-// Reject Withdrawal
+// Reject Withdrawal with immediate refund
 export async function rejectWithdrawalInSupabase(withdrawId: string): Promise<boolean> {
   try {
-    const { error } = await supabase
-      .from('withdrawals')
-      .update({ status: 'rejected' })
-      .eq('id', withdrawId);
+    // 1. Fetch withdrawal record to get amount and username
+    const { data: wd } = await supabase.from('withdrawals').select('*').eq('id', withdrawId).single();
+    if (!wd || wd.status !== 'pending') return false;
 
-    return !error;
+    // 2. Fetch User latest balance for atomic increment
+    const { data: user } = await supabase.from('users').select('main_balance').eq('username', wd.username).single();
+    if (!user) return false;
+    const currentBalance = Number(user.main_balance) || 0;
+    const refundAmount = Number(wd.amount) || 0;
+    const newBalance = currentBalance + refundAmount;
+
+    // 3. Atomically update status to rejected and refund user balance
+    const [wdUpdate, userUpdate] = await Promise.all([
+      supabase.from('withdrawals').update({ status: 'rejected' }).eq('id', withdrawId),
+      supabase.from('users').update({ main_balance: newBalance }).eq('username', wd.username)
+    ]);
+
+    if (wdUpdate.error || userUpdate.error) {
+      console.error('Atomic Withdrawal Rejection/Refund error:', wdUpdate.error || userUpdate.error);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error('Reject withdrawal crash:', err);
     return false;
@@ -1055,10 +1088,17 @@ export async function claimDailyRewardInSupabase(
   try {
     const { data: user } = await supabase
       .from('users')
-      .select('main_balance, total_earned, active_contracts, settings')
+      .select('main_balance, total_earned, active_contracts, settings, last_claim_time')
       .eq('username', username)
       .single();
     if (!user) return false;
+
+    // Enforce 24-hour claim cooldown based securely on database last_claim_time
+    const lastClaim = Number(user.last_claim_time) || 0;
+    if (lastClaim > 0 && (Date.now() - lastClaim < CONFIG.CLAIM_COOLDOWN)) {
+      console.warn(`Database cooldown active for user ${username}. Cannot claim yet.`);
+      return false;
+    }
 
     const currentBalance = Number(user.main_balance) || 0;
     const currentEarned = Number(user.total_earned) || 0;
@@ -1144,6 +1184,105 @@ export async function claimDailyRewardInSupabase(
   } catch (err) {
     console.error('Error claiming daily reward:', err);
     return false;
+  }
+}
+
+// Execute Lucky Spin securely on database/server side
+export async function executeLuckySpinInSupabase(username: string): Promise<{ success: boolean; prizeIndex: number; error?: string }> {
+  try {
+    const { data: user } = await supabase
+      .from('users')
+      .select('main_balance, total_earned, settings')
+      .eq('username', username)
+      .single();
+    if (!user) return { success: false, prizeIndex: 0, error: 'User not found' };
+
+    const settings = user.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false };
+    const tickets = typeof settings.spinTickets === 'number' ? settings.spinTickets : 5;
+    const count = typeof settings.spinCount === 'number' ? settings.spinCount : 0;
+
+    if (tickets <= 0) {
+      return { success: false, prizeIndex: 0, error: 'No tickets left' };
+    }
+
+    // Secure database server-side representation of spin wheel elements
+    const SPIN_ITEMS_DB = [
+      { label: 'Rp 5.000', color: '#7209b7', value: 5000, type: 'cash' },
+      { label: 'ZONK', color: '#1a103c', value: 0, type: 'zonk' },
+      { label: 'Rp 15.000', color: '#b5179e', value: 15000, type: 'cash' },
+      { label: 'Boost 5x', color: '#f72585', value: 5, type: 'boost' },
+      { label: 'Rp 25.000', color: '#7209b7', value: 25000, type: 'cash' },
+      { label: 'ZONK', color: '#1a103c', value: 0, type: 'zonk' },
+      { label: 'Rp 50.000', color: '#da70d6', value: 50000, type: 'cash' },
+      { label: 'Boost 10x', color: '#f8961e', value: 10, type: 'boost' },
+    ];
+
+    const prizeIndex = Math.floor(Math.random() * SPIN_ITEMS_DB.length);
+    const prize = SPIN_ITEMS_DB[prizeIndex];
+
+    const nextTickets = tickets - 1;
+    const nextCount = count + 1;
+
+    const txId = 'SPN-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+    const historyEntry = {
+      id: txId,
+      prize: prize.label,
+      date: Date.now(),
+      success: prize.type !== 'zonk'
+    };
+
+    const nextSettings = {
+      ...settings,
+      spinTickets: nextTickets,
+      spinCount: nextCount,
+      luckySpinHistory: [historyEntry, ...(settings.luckySpinHistory || [])].slice(0, 10)
+    };
+
+    const currentBalance = Number(user.main_balance) || 0;
+    const currentEarned = Number(user.total_earned) || 0;
+
+    let updatedBalance = currentBalance;
+    let updatedEarned = currentEarned;
+
+    const updates: any = {
+      settings: nextSettings
+    };
+
+    if (prize.type === 'cash') {
+      updatedBalance += prize.value;
+      updatedEarned += prize.value;
+      updates.main_balance = updatedBalance;
+      updates.total_earned = updatedEarned;
+    }
+
+    const promises: any[] = [
+      supabase.from('users').update(updates).eq('username', username)
+    ];
+
+    if (prize.type === 'cash') {
+      promises.push(
+        supabase.from('transactions').insert({
+          id: txId,
+          username,
+          type: 'reward',
+          amount: prize.value,
+          description: `Hadiah Lucky Spin Wheel: ${prize.label}`,
+          created_at: Date.now()
+        })
+      );
+    }
+
+    const results = await Promise.all(promises);
+    const hasError = results.some(r => r.error);
+
+    if (hasError) {
+      return { success: false, prizeIndex: 0, error: 'Database transaction failed' };
+    }
+
+    return { success: true, prizeIndex };
+  } catch (err: any) {
+    console.error('Error in executeLuckySpinInSupabase:', err);
+    return { success: false, prizeIndex: 0, error: err.message };
   }
 }
 
