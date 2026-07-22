@@ -398,78 +398,145 @@ export default function GoldMarketChart({ language }: GoldMarketChartProps) {
         </div>
       </div>
 
-      {/* Real-time Activity Feed Block */}
-      <div className="bg-gradient-to-b from-[#0f0724] to-black/65 border border-white/5 rounded-2xl p-4.5 space-y-3.5">
+      {/* Real-time Global Activity Ticker matching original screenshot design */}
+      <div className="bg-[#12082b]/80 border border-purple-900/40 rounded-3xl p-4 sm:p-5 relative overflow-hidden shadow-xl">
+        <style>{`
+          @keyframes marquee {
+            0% { transform: translateX(0%); }
+            100% { transform: translateX(-50%); }
+          }
+          .animate-marquee-loop {
+            display: flex;
+            gap: 2.5rem;
+            animation: marquee 65s linear infinite;
+            width: max-content;
+          }
+          .animate-marquee-loop:hover {
+            animation-play-state: paused;
+          }
+        `}</style>
         
-        {/* Activity Header with LIVE Indicator */}
-        <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
-          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-            <Activity className="w-3.5 h-3.5 text-gold-primary animate-pulse" />
-            <span>{language === 'id' ? 'AKTIVITAS LIVE GLOBAL' : 'GLOBAL LIVE BULLETIN'}</span>
-          </div>
-          
-          <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider ${
-            isConnected 
-              ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' 
-              : 'bg-rose-500/10 border border-rose-500/20 text-rose-400 animate-pulse'
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-400 animate-ping' : 'bg-rose-400'}`} />
-            <span>● LIVE</span>
-            <span className="text-slate-400 font-normal pl-1 border-l border-white/10">
-              {isConnected ? 'Realtime Connected' : 'Disconnected'}
-            </span>
+        {/* Header + Ticker container */}
+        <div className="flex items-start gap-3.5 pr-22">
+          <Activity className="w-5 h-5 text-purple-300 shrink-0 mt-0.5 animate-pulse" />
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] sm:text-xs font-black tracking-widest text-slate-400 uppercase font-orbitron mb-1.5">
+              {language === 'id' ? 'AKTIVITAS LIVE GLOBAL' : 'GLOBAL LIVE BULLETIN'}
+            </div>
+
+            <div className="overflow-hidden relative w-full h-6 flex items-center">
+              {activities.length === 0 ? (
+                <div className="text-slate-400 text-xs font-semibold italic">
+                  {language === 'id' ? 'Belum ada aktivitas terbaru' : 'No recent activities'}
+                </div>
+              ) : (
+                <div className="animate-marquee-loop whitespace-nowrap">
+                  {[...activities, ...activities].map((act, index) => {
+                    let displayUser = act.username ? act.username.replace(/^@/, '') : 'Member';
+                    if (displayUser.length > 15) {
+                      displayUser = maskUsername(displayUser);
+                    } else {
+                      displayUser = `@${displayUser}`;
+                    }
+
+                    let actionText = '';
+                    let valueText = '';
+
+                    if (language === 'id') {
+                      switch (act.type) {
+                        case 'contract':
+                          actionText = 'membeli kontrak baru';
+                          valueText = act.amount ? `${act.amount} GLD` : '1 GLD';
+                          break;
+                        case 'claim':
+                          actionText = 'klaim reward sebesar';
+                          valueText = `Rp ${(act.amount || 0).toLocaleString('id-ID')}`;
+                          break;
+                        case 'deposit':
+                          actionText = 'pembayaran sukses sebesar';
+                          valueText = `Rp ${(act.amount || 0).toLocaleString('id-ID')}`;
+                          break;
+                        case 'registration':
+                          actionText = 'berhasil bergabung';
+                          valueText = 'Member Baru';
+                          break;
+                        case 'referral':
+                          actionText = 'mendapatkan referral baru';
+                          valueText = '';
+                          break;
+                        default:
+                          actionText = 'melakukan transaksi';
+                          valueText = act.amount ? `Rp ${(act.amount).toLocaleString('id-ID')}` : '';
+                      }
+                    } else {
+                      switch (act.type) {
+                        case 'contract':
+                          actionText = 'purchased new contract';
+                          valueText = act.amount ? `${act.amount} GLD` : '1 GLD';
+                          break;
+                        case 'claim':
+                          actionText = 'claimed reward of';
+                          valueText = `Rp ${(act.amount || 0).toLocaleString('id-ID')}`;
+                          break;
+                        case 'deposit':
+                          actionText = 'payment succeeded';
+                          valueText = `Rp ${(act.amount || 0).toLocaleString('id-ID')}`;
+                          break;
+                        case 'registration':
+                          actionText = 'successfully joined';
+                          valueText = 'New Member';
+                          break;
+                        case 'referral':
+                          actionText = 'new referral joined';
+                          valueText = '';
+                          break;
+                        default:
+                          actionText = 'performed activity';
+                          valueText = act.amount ? `Rp ${(act.amount).toLocaleString('id-ID')}` : '';
+                      }
+                    }
+
+                    return (
+                      <span key={`${act.id}-${index}`} className="inline-flex items-center gap-1.5 text-xs font-semibold whitespace-nowrap pr-4">
+                        <span>🇮🇩</span>
+                        <span className="font-bold text-white">{displayUser}</span>
+                        <span className="text-slate-200 font-medium">{actionText}</span>
+                        {valueText && <span className="font-extrabold text-amber-400">{valueText}</span>}
+                        <span className="text-slate-400 text-[10px] font-medium ml-0.5">
+                          ({formatRelativeTime(act.timestamp, language)})
+                        </span>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Real-time Scrollable List */}
-        <div className="max-h-[220px] overflow-y-auto space-y-2.5 pr-1 scrollbar-thin scrollbar-thumb-white/5 scrollbar-track-transparent">
-          {activities.length === 0 ? (
-            <div className="text-center py-10 text-slate-500 font-extrabold text-xs">
-              {language === 'id' ? 'Belum ada aktivitas terbaru' : 'No recent activities'}
-            </div>
-          ) : (
-            activities.map((act) => (
-              <div 
-                key={act.id} 
-                className="flex items-start justify-between gap-3 p-2 rounded-xl bg-white/[0.02] border border-white/5 hover:border-gold-primary/20 transition-all duration-350"
-              >
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-gold-primary/10 border border-gold-primary/20 flex items-center justify-center text-sm shrink-0">
-                    {getActivityIcon(act.type)}
-                  </div>
-                  <div className="text-left min-w-0">
-                    <span className="text-[9px] font-black text-slate-400 block tracking-wider uppercase mb-0.5">
-                      {getActivityLabel(act.type, language)}
-                    </span>
-                    <span className="text-[11px] font-semibold text-white leading-tight block break-words">
-                      {getActivityText(act, language)}
-                    </span>
-                  </div>
-                </div>
-                
-                <span className="text-[9px] font-bold text-slate-500 shrink-0 mt-0.5 whitespace-nowrap">
-                  {formatRelativeTime(act.timestamp, language)}
-                </span>
-              </div>
-            ))
-          )}
+        {/* Node Location Badge floating right */}
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 bg-[#2d1558]/90 border border-purple-600/40 text-white rounded-full px-2.5 py-1 flex items-center gap-1 text-[10px] font-extrabold tracking-wider shadow-md shrink-0">
+          <Globe className="w-3 h-3 text-purple-200 shrink-0" />
+          <span>JAKARTA</span>
         </div>
       </div>
 
       {/* Telemetry quick status metrics */}
-      <div className="grid grid-cols-3 gap-1.5 text-[8px] font-bold text-center">
-        <div className="py-1.5 bg-white/[0.01] border border-white/5 rounded-xl flex flex-col justify-center">
-          <span className="text-slate-500 uppercase leading-none mb-1">{language === 'id' ? 'TREN PASAR' : 'MARKET BIAS'}</span>
-          <span className="text-emerald-400 font-extrabold uppercase">BULLISH</span>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="py-2.5 px-1 bg-[#120829] border border-purple-900/30 rounded-2xl flex flex-col justify-center">
+          <span className="text-slate-400 text-[9px] font-black tracking-widest uppercase mb-0.5">
+            {language === 'id' ? 'TREN PASAR' : 'MARKET BIAS'}
+          </span>
+          <span className="text-emerald-400 font-black text-xs sm:text-sm uppercase">BULLISH</span>
         </div>
-        <div className="py-1.5 bg-white/[0.01] border border-white/5 rounded-xl flex flex-col justify-center">
-          <span className="text-slate-500 uppercase leading-none mb-1">SPREAD</span>
-          <span className="text-white font-mono font-black">0.015%</span>
+        <div className="py-2.5 px-1 bg-[#120829] border border-purple-900/30 rounded-2xl flex flex-col justify-center">
+          <span className="text-slate-400 text-[9px] font-black tracking-widest uppercase mb-0.5">SPREAD</span>
+          <span className="text-white font-mono font-black text-xs sm:text-sm">0.015%</span>
         </div>
-        <div className="py-1.5 bg-white/[0.01] border border-white/5 rounded-xl flex flex-col justify-center">
-          <span className="text-slate-500 uppercase leading-none mb-1">LIQUIDITY</span>
-          <span className="text-gold-primary font-black uppercase flex items-center justify-center gap-0.5">
-            <ShieldCheck className="w-2.5 h-2.5 text-gold-primary shrink-0" />
+        <div className="py-2.5 px-1 bg-[#120829] border border-purple-900/30 rounded-2xl flex flex-col justify-center">
+          <span className="text-slate-400 text-[9px] font-black tracking-widest uppercase mb-0.5">LIQUIDITY</span>
+          <span className="text-white font-black text-xs sm:text-sm uppercase flex items-center justify-center gap-1">
+            <ShieldCheck className="w-3.5 h-3.5 text-slate-200 shrink-0" />
             SECURED
           </span>
         </div>

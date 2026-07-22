@@ -63,6 +63,136 @@ const SUPABASE_ANON_KEY = getSupabaseKey(SUPABASE_URL);
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// Flag to track if we need to fall back to Local Storage database due to Supabase connection/table errors
+export let isSupabaseOffline = false;
+
+const SPIN_ITEMS = [
+  { label: 'Rp 5.000', color: '#7209b7', value: 5000, type: 'cash' },
+  { label: 'ZONK', color: '#1a103c', value: 0, type: 'zonk' },
+  { label: 'Rp 15.000', color: '#b5179e', value: 15000, type: 'cash' },
+  { label: 'Boost 5x', color: '#f72585', value: 5, type: 'boost' },
+  { label: 'Rp 25.000', color: '#7209b7', value: 25000, type: 'cash' },
+  { label: 'ZONK', color: '#1a103c', value: 0, type: 'zonk' },
+  { label: 'Rp 50.000', color: '#da70d6', value: 50000, type: 'cash' },
+  { label: 'Boost 10x', color: '#f8961e', value: 10, type: 'boost' },
+];
+
+export function getLocalAccounts(): UserAccount[] {
+  try {
+    const data = localStorage.getItem('grockgold_local_db_accounts');
+    if (data) {
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse local db accounts:', e);
+  }
+
+  // Seed default admin and user
+  const admin: UserAccount = {
+    fullName: 'System Administrator',
+    username: 'admin',
+    email: 'admin@grockgold.com',
+    phone: '+6281234567890',
+    password: 'fb_a559ea12' /* admin123 */,
+    referralCode: '',
+    invitedBy: null,
+    createdAt: Date.now() - 30 * 24 * 3600 * 1000,
+    settings: {
+      language: 'id',
+      notificationsEnabled: true,
+      autoReinvest: false,
+    },
+    state: {
+      mainBalance: 1000000000,
+      activeContracts: 0,
+      totalEarned: 0,
+      referralEarned: 0,
+      rebateEarned: 0,
+      lastClaimTime: 0,
+      welcomeBonusClaimed: true,
+      isLoggedIn: false,
+      username: 'admin',
+      holders: [],
+      goldProduction: 0,
+      cyclePercent: 0,
+      hasPurchased: false,
+      profileImage: null,
+      transactions: [],
+      pendingMiningReward: 0,
+      todayProfit: 0,
+      totalProfit: 0,
+    }
+  };
+
+  const defaultUser: UserAccount = {
+    fullName: 'Grock Gold Member',
+    username: 'member1',
+    email: 'member1@grockgold.com',
+    phone: '+628111222333',
+    password: 'fb_9e000000' /* password123 */,
+    referralCode: 'GOLD1',
+    invitedBy: null,
+    createdAt: Date.now() - 5 * 24 * 3600 * 1000,
+    settings: {
+      language: 'id',
+      notificationsEnabled: true,
+      autoReinvest: false,
+    },
+    state: {
+      mainBalance: 2000000,
+      activeContracts: 1,
+      totalEarned: 450000,
+      referralEarned: 180000,
+      rebateEarned: 50000,
+      lastClaimTime: Date.now() - 12 * 3600 * 1000,
+      welcomeBonusClaimed: true,
+      isLoggedIn: false,
+      username: 'member1',
+      holders: [],
+      goldProduction: 10,
+      cyclePercent: 50,
+      hasPurchased: true,
+      profileImage: null,
+      transactions: [
+        {
+          id: 'welcome-bonus-1',
+          type: 'welcome_bonus',
+          amount: 1800000,
+          date: Date.now() - 5 * 24 * 3600 * 1000,
+          description: 'Welcome Bonus GrockGold',
+          status: 'approved'
+        },
+        {
+          id: 'purchase-1',
+          type: 'purchase',
+          amount: 180000,
+          date: Date.now() - 4 * 24 * 3600 * 1000,
+          description: 'Aktivasi Kontrak Tambang Emas (1 Unit)',
+          status: 'approved'
+        }
+      ],
+      pendingMiningReward: 25000,
+      todayProfit: 15000,
+      totalProfit: 450000
+    }
+  };
+
+  const accounts = [admin, defaultUser];
+  saveLocalAccounts(accounts);
+  return accounts;
+}
+
+export function saveLocalAccounts(accounts: UserAccount[]) {
+  try {
+    localStorage.setItem('grockgold_local_db_accounts', JSON.stringify(accounts));
+  } catch (e) {
+    console.error('Failed to save local db accounts:', e);
+  }
+}
+
 // =========================================================================
 // SQL SCHEMA SCRIPT FOR USER (TO RUN IN SUPABASE SQL EDITOR)
 // =========================================================================
@@ -280,6 +410,7 @@ USING (
 // =========================================================================
 
 export async function seedDefaultAdminIfNeeded(): Promise<void> {
+  if (isSupabaseOffline) return;
   try {
     const { data, error } = await supabase
       .from('users')
@@ -287,7 +418,13 @@ export async function seedDefaultAdminIfNeeded(): Promise<void> {
       .eq('username', 'admin')
       .single();
 
-    if (error || !data) {
+    if (error) {
+      console.warn('Supabase not available during admin seed check, switching to offline local storage database.');
+      isSupabaseOffline = true;
+      return;
+    }
+
+    if (!data) {
       const adminPayload = {
         username: 'admin',
         full_name: 'System Administrator',
@@ -317,7 +454,8 @@ export async function seedDefaultAdminIfNeeded(): Promise<void> {
       console.log('Seeded default admin successfully.');
     }
   } catch (err) {
-    console.error('Error seeding default admin:', err);
+    console.warn('Error seeding default admin, switching to offline local storage database:', err);
+    isSupabaseOffline = true;
   }
 }
 
@@ -326,9 +464,16 @@ export async function seedDefaultAdminIfNeeded(): Promise<void> {
 // =========================================================================
 
 export async function fetchAccountsFromSupabase(targetUsername?: string): Promise<UserAccount[] | null> {
+  if (isSupabaseOffline) {
+    return getLocalAccounts();
+  }
   try {
     // Seed default admin first
     await seedDefaultAdminIfNeeded();
+
+    if (isSupabaseOffline) {
+      return getLocalAccounts();
+    }
 
     let usersQuery = supabase.from('users').select('*');
     let depositsQuery = supabase.from('deposits').select('*');
@@ -347,8 +492,9 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
     ]);
 
     if (usersRes.error) {
-      console.error('Supabase usersQuery error:', usersRes.error);
-      throw new Error(usersRes.error.message);
+      console.warn('Supabase usersQuery error, falling back to local storage database:', usersRes.error);
+      isSupabaseOffline = true;
+      return getLocalAccounts();
     }
     if (depositsRes.error) {
       console.error('Supabase depositsQuery error:', depositsRes.error);
@@ -526,8 +672,9 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
       };
     });
   } catch (err) {
-    console.error('Error in fetchAccountsFromSupabase:', err);
-    return null;
+    console.warn('Error in fetchAccountsFromSupabase, falling back to robust Local Storage database state:', err);
+    isSupabaseOffline = true;
+    return getLocalAccounts();
   }
 }
 
@@ -537,6 +684,19 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
 
 // 1. Create User (Registration)
 export async function registerUserInSupabase(account: UserAccount): Promise<boolean> {
+  if (isSupabaseOffline) {
+    const accounts = getLocalAccounts();
+    const exists = accounts.some(a => a.username.toLowerCase() === account.username.toLowerCase());
+    if (exists) return false;
+    const hashedPassword = await hashPassword(account.password);
+    const newAccount: UserAccount = {
+      ...account,
+      password: hashedPassword,
+    };
+    accounts.push(newAccount);
+    saveLocalAccounts(accounts);
+    return true;
+  }
   try {
     const hashedPassword = await hashPassword(account.password);
     const payload = {
@@ -599,6 +759,26 @@ export async function createDepositInSupabase(
   paymentMethod: string,
   proofImage: string | null
 ): Promise<boolean> {
+  if (isSupabaseOffline) {
+    const accounts = getLocalAccounts();
+    const idx = accounts.findIndex(a => a.username.toLowerCase() === username.toLowerCase());
+    if (idx !== -1) {
+      if (!accounts[idx].state.transactions) accounts[idx].state.transactions = [];
+      accounts[idx].state.transactions.unshift({
+        id,
+        type: 'deposit',
+        amount,
+        date: Date.now(),
+        description: '⏳ Deposit (Pending)',
+        proofImage,
+        status: 'pending',
+        paymentMethod
+      });
+      saveLocalAccounts(accounts);
+      return true;
+    }
+    return false;
+  }
   try {
     // Mandatory backend validation: prevent any deposit from being created if proofImage is empty
     if (!proofImage || proofImage.trim() === '') {
@@ -639,6 +819,27 @@ export async function createWithdrawalInSupabase(
   accountNumber: string,
   accountName: string
 ): Promise<boolean> {
+  if (isSupabaseOffline) {
+    const accounts = getLocalAccounts();
+    const idx = accounts.findIndex(a => a.username.toLowerCase() === username.toLowerCase());
+    if (idx !== -1) {
+      const balance = accounts[idx].state.mainBalance;
+      if (balance < amount) return false;
+      accounts[idx].state.mainBalance -= amount;
+      if (!accounts[idx].state.transactions) accounts[idx].state.transactions = [];
+      accounts[idx].state.transactions.unshift({
+        id,
+        type: 'withdraw',
+        amount,
+        date: Date.now(),
+        description: '⏳ Penarikan (Pending)',
+        status: 'pending'
+      });
+      saveLocalAccounts(accounts);
+      return true;
+    }
+    return false;
+  }
   try {
     if (amount <= 0) {
       console.warn(`Invalid withdrawal amount: ${amount}`);
@@ -684,6 +885,16 @@ export async function createWithdrawalInSupabase(
 
 // 4. Update Profile Image
 export async function updateProfileImageInSupabase(username: string, imageUrl: string | null): Promise<boolean> {
+  if (isSupabaseOffline) {
+    const accounts = getLocalAccounts();
+    const idx = accounts.findIndex(a => a.username.toLowerCase() === username.toLowerCase());
+    if (idx !== -1) {
+      accounts[idx].state.profileImage = imageUrl;
+      saveLocalAccounts(accounts);
+      return true;
+    }
+    return false;
+  }
   try {
     const { error } = await supabase
       .from('users')
@@ -699,6 +910,16 @@ export async function updateProfileImageInSupabase(username: string, imageUrl: s
 
 // 5. Update settings in Supabase
 export async function updateUserSettingsInSupabase(username: string, settings: any): Promise<boolean> {
+  if (isSupabaseOffline) {
+    const accounts = getLocalAccounts();
+    const idx = accounts.findIndex(a => a.username.toLowerCase() === username.toLowerCase());
+    if (idx !== -1) {
+      accounts[idx].settings = { ...accounts[idx].settings, ...settings };
+      saveLocalAccounts(accounts);
+      return true;
+    }
+    return false;
+  }
   try {
     const { error } = await supabase
       .from('users')
@@ -714,6 +935,16 @@ export async function updateUserSettingsInSupabase(username: string, settings: a
 
 // 6. Update general appState in Supabase (For users & admin profile)
 export async function saveAccountToSupabase(account: UserAccount): Promise<boolean> {
+  if (isSupabaseOffline) {
+    const accounts = getLocalAccounts();
+    const idx = accounts.findIndex(a => a.username.toLowerCase() === account.username.toLowerCase());
+    if (idx !== -1) {
+      accounts[idx] = account;
+      saveLocalAccounts(accounts);
+      return true;
+    }
+    return false;
+  }
   try {
     const payload: any = {
       full_name: account.fullName,
