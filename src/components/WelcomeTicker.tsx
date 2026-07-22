@@ -14,13 +14,13 @@ export default function WelcomeTicker({ memberCount, isIndonesian }: WelcomeTick
         <Users className="w-5 h-5 text-purple-400 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="text-[7px] font-black text-[#64748b] tracking-wider uppercase leading-none mb-1">
-            GLOBAL COMMUNITY
+            {isIndonesian ? 'KOMUNITAS GLOBAL' : 'GLOBAL COMMUNITY'}
           </div>
           <div className="text-[11px] font-bold text-white leading-tight font-sans">
-            128,540+
+            {memberCount > 0 ? memberCount.toLocaleString('id-ID') : (isIndonesian ? 'Menghubungkan...' : 'Initializing...')}
           </div>
           <div className="text-[7.5px] text-[#64748b] font-bold leading-none mt-0.5">
-            {isIndonesian ? 'Anggota' : 'Members'}
+            {isIndonesian ? 'Anggota Terverifikasi' : 'Verified Members'}
           </div>
         </div>
       </div>
@@ -30,13 +30,13 @@ export default function WelcomeTicker({ memberCount, isIndonesian }: WelcomeTick
         <Globe className="w-5 h-5 text-purple-400 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="text-[7px] font-black text-[#64748b] tracking-wider uppercase leading-none mb-1">
-            MINING SITES
+            {isIndonesian ? 'LOKASI TAMBANG' : 'MINING SITES'}
           </div>
           <div className="text-[11px] font-bold text-white leading-tight font-sans">
-            {isIndonesian ? '4 Negara' : '4 Countries'}
+            {isIndonesian ? 'Awaiting Genesis' : 'Awaiting Genesis'}
           </div>
           <div className="text-[7.5px] text-[#64748b] font-bold leading-none mt-0.5">
-            {isIndonesian ? 'Operasional' : 'Operational'}
+            {isIndonesian ? 'Status Jaringan' : 'Network Status'}
           </div>
         </div>
       </div>
@@ -46,29 +46,29 @@ export default function WelcomeTicker({ memberCount, isIndonesian }: WelcomeTick
         <Tractor className="w-5 h-5 text-purple-400 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="text-[7px] font-black text-[#64748b] tracking-wider uppercase leading-none mb-1">
-            TOTAL FLEET
+            {isIndonesian ? 'ARMADA UNIT' : 'TOTAL FLEET'}
           </div>
           <div className="text-[11px] font-bold text-white leading-tight font-sans">
-            1,000+
+            {isIndonesian ? 'Pending Activation' : 'Pending Activation'}
           </div>
           <div className="text-[7.5px] text-[#64748b] font-bold leading-none mt-0.5">
-            {isIndonesian ? 'Unit Aktif' : 'Active Units'}
+            {isIndonesian ? 'Siap Operasi' : 'Operation Ready'}
           </div>
         </div>
       </div>
 
-      {/* CARD 4: SECURE & TRANSPARENT */}
+      {/* CARD 4: SECURE CONNECTION */}
       <div className="bg-[#050212]/90 border border-slate-900/80 rounded-2xl p-2.5 flex items-center gap-2.5 shadow-md hover:border-gold-primary/20 transition duration-300">
         <Shield className="w-5 h-5 text-gold-primary filter drop-shadow-[0_0_4px_rgba(251,191,36,0.4)] flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="text-[7px] font-black text-gold-primary tracking-wider uppercase leading-none mb-1">
-            SECURE ACCESS
+            SECURE CONNECTION
           </div>
           <div className="text-[11px] font-bold text-white leading-tight font-sans">
-            {isIndonesian ? 'Terproteksi' : 'Secured'}
+            {isIndonesian ? 'Terproteksi' : 'Protected'}
           </div>
           <div className="text-[7.5px] text-[#64748b] font-bold leading-none mt-0.5">
-            SSL 256-Bit
+            Protected Access
           </div>
         </div>
       </div>

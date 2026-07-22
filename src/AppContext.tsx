@@ -271,8 +271,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (supabaseAccounts && supabaseAccounts.length > 0) {
         setSupabaseError(null);
         setAccounts(supabaseAccounts);
-        localStorage.setItem('grockgold_accounts_v4', JSON.stringify(supabaseAccounts));
-        sessionStorage.setItem('grockgold_accounts_cache_v4', JSON.stringify(supabaseAccounts));
+        const sanitizedAccounts = supabaseAccounts.map(({ password, ...rest }) => rest);
+        localStorage.setItem('grockgold_accounts_v4', JSON.stringify(sanitizedAccounts));
+        sessionStorage.setItem('grockgold_accounts_cache_v4', JSON.stringify(sanitizedAccounts));
 
         if (loggedInUsername) {
           const found = supabaseAccounts.find(acc => acc.username.toLowerCase() === loggedInUsername.toLowerCase());

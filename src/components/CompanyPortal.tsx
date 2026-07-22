@@ -37,13 +37,15 @@ interface CompanyPortalProps {
   toggleLanguage: () => void;
   onNavigateToAuth: (screen: 'login' | 'register') => void;
   memberCount: number;
+  onNavigateToTab?: (tab: string) => void;
 }
 
 export default function CompanyPortal({ 
   language, 
   toggleLanguage, 
   onNavigateToAuth,
-  memberCount 
+  memberCount,
+  onNavigateToTab 
 }: CompanyPortalProps) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -1128,33 +1130,33 @@ export default function CompanyPortal({
             <div className="space-y-1 bg-[#100726]/30 border border-white/5 rounded-3xl p-6">
               <span className="text-[10px] text-yellow-500/60 font-black uppercase tracking-wider block">{text.statsActiveMiners}</span>
               <div className="text-2xl sm:text-3.5xl font-black font-orbitron text-white">
-                {memberCount.toLocaleString('id-ID')}+
+                {memberCount > 0 ? memberCount.toLocaleString('id-ID') : 'Initializing...'}
               </div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase">{language === 'id' ? 'MITRA REGISTERED' : 'REGISTERED MEMBERS'}</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase">{language === 'id' ? 'ANGGOTA TERDAFTAR' : 'REGISTERED MEMBERS'}</p>
             </div>
 
             <div className="space-y-1 bg-[#100726]/30 border border-white/5 rounded-3xl p-6">
               <span className="text-[10px] text-yellow-500/60 font-black uppercase tracking-wider block">{text.statsTotalAssets}</span>
               <div className="text-2xl sm:text-3.5xl font-black font-orbitron text-gradient-gold">
-                Rp 12.8 T
+                {language === 'id' ? 'Awaiting Genesis' : 'Awaiting Genesis'}
               </div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase">{language === 'id' ? 'CADANGAN TERVERIFIKASI' : 'VERIFIED RESERVES'}</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase">{language === 'id' ? 'STATUS OPERASIONAL' : 'OPERATIONAL STATUS'}</p>
             </div>
 
             <div className="space-y-1 bg-[#100726]/30 border border-white/5 rounded-3xl p-6">
               <span className="text-[10px] text-yellow-500/60 font-black uppercase tracking-wider block">{text.statsTransactions}</span>
               <div className="text-2xl sm:text-3.5xl font-black font-orbitron text-white">
-                Rp 8.4 T+
+                {language === 'id' ? 'Pending Activation' : 'Pending Activation'}
               </div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase">{language === 'id' ? 'DICAIRKAN HINGGA SEKARANG' : 'DISBURSED SINCE LAUNCH'}</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase">{language === 'id' ? 'ANTREAN VALIDASI' : 'VALIDATION QUEUE'}</p>
             </div>
 
             <div className="space-y-1 bg-[#100726]/30 border border-white/5 rounded-3xl p-6">
               <span className="text-[10px] text-yellow-500/60 font-black uppercase tracking-wider block">{text.statsCountries}</span>
               <div className="text-2xl sm:text-3.5xl font-black font-orbitron text-gradient-gold">
-                24+
+                {language === 'id' ? 'Protected Access' : 'Protected Access'}
               </div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase">{language === 'id' ? 'WILAYAH OPERASI' : 'ACTIVE REGIONS'}</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase">{language === 'id' ? 'STATUS KONEKSI' : 'CONNECTION STATUS'}</p>
             </div>
 
           </div>
@@ -1467,10 +1469,10 @@ export default function CompanyPortal({
             </div>
 
             <div className="flex flex-wrap gap-x-6 gap-y-2 justify-center">
-              <span className="hover:text-yellow-500 cursor-pointer">Privacy Policy</span>
-              <span className="hover:text-yellow-500 cursor-pointer">Terms & Conditions</span>
-              <span className="hover:text-yellow-500 cursor-pointer">Risk Disclosure</span>
-              <span className="hover:text-yellow-500 cursor-pointer">Anti-Money Laundering (AML)</span>
+              <span className="hover:text-yellow-500 cursor-pointer" onClick={() => onNavigateToTab ? onNavigateToTab('privacy') : onNavigateToAuth('login')}>Privacy Policy</span>
+              <span className="hover:text-yellow-500 cursor-pointer" onClick={() => onNavigateToTab ? onNavigateToTab('terms') : onNavigateToAuth('login')}>Terms & Conditions</span>
+              <span className="hover:text-yellow-500 cursor-pointer" onClick={() => onNavigateToTab ? onNavigateToTab('contact') : onNavigateToAuth('login')}>Contact Information</span>
+              <span className="hover:text-yellow-500 cursor-pointer" onClick={() => onNavigateToTab ? onNavigateToTab('help') : onNavigateToAuth('login')}>Support Desk</span>
             </div>
           </div>
 

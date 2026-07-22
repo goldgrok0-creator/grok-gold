@@ -89,6 +89,9 @@ import HomeSkeleton from './components/HomeSkeleton';
 import NotificationsPage from './components/NotificationsPage';
 import AboutPage from './components/AboutPage';
 import HelpPage from './components/HelpPage';
+import PrivacyPolicyPage from './components/PrivacyPolicyPage';
+import TermsOfServicePage from './components/TermsOfServicePage';
+import ContactInfoPage from './components/ContactInfoPage';
 import ContractPage from './components/ContractPage';
 import NetworkPage from './components/NetworkPage';
 import WalletPage from './components/WalletPage';
@@ -3385,6 +3388,10 @@ export default function App() {
               onNavigateToAuth={(screen) => {
                 setShowLanding(false);
                 setAuthScreen(screen);
+              }}
+              onNavigateToTab={(tab) => {
+                setShowLanding(false);
+                setCurrentTab(tab);
               }}
               memberCount={state.holders.length}
             />
@@ -6775,6 +6782,21 @@ export default function App() {
               {/* ABOUT US VIEW */}
               {currentTab === 'about' && (
                 <AboutPage language={language} setCurrentTab={setCurrentTab} triggerModal={triggerModal} />
+              )}
+
+              {/* PRIVACY POLICY VIEW */}
+              {currentTab === 'privacy' && (
+                <PrivacyPolicyPage language={language} setCurrentTab={setCurrentTab} />
+              )}
+
+              {/* TERMS OF SERVICE VIEW */}
+              {currentTab === 'terms' && (
+                <TermsOfServicePage language={language} setCurrentTab={setCurrentTab} />
+              )}
+
+              {/* CONTACT INFO VIEW */}
+              {currentTab === 'contact' && (
+                <ContactInfoPage language={language} setCurrentTab={setCurrentTab} triggerModal={triggerModal} />
               )}
 
             </div>

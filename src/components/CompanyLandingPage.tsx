@@ -154,10 +154,10 @@ export default function CompanyLandingPage({
       goldPriceSub: "Data diperbarui secara real-time berdasarkan bursa komoditas global.",
       statsTitle: "STATISTIK PORTAL PERUSAHAAN",
       stats: [
-        { label: "Anggota Aktif", value: "142.500+" },
-        { label: "Total Aset Dikelola", value: "Rp 12.8 T" },
-        { label: "Total Transaksi Harian", value: "Rp 350 M+" },
-        { label: "Negara Beroperasi", value: "42+ Negara" }
+        { label: "Anggota Terdaftar", value: "Initializing..." },
+        { label: "Status Operasional", value: "Awaiting Genesis" },
+        { label: "Antrean Validasi", value: "Pending Activation" },
+        { label: "Status Koneksi", value: "Protected Access" }
       ],
       newsTitle: "EVENT & PENGUMUMAN TERBARU",
       newsSub: "Ikuti perkembangan terbaru, pencapaian, dan berita industri pertambangan GrokGold.",
@@ -233,10 +233,10 @@ export default function CompanyLandingPage({
       goldPriceSub: "Live commodity price feed updated in real-time based on international markets.",
       statsTitle: "COMPANY PORTAL STATISTICS",
       stats: [
-        { label: "Active Members", value: "142,500+" },
-        { label: "Total Assets Under Mgmt", value: "IDR 12.8 Trillion" },
-        { label: "Daily Transactions", value: "IDR 350 Billion+" },
-        { label: "Operating Countries", value: "42+ Countries" }
+        { label: "Registered Members", value: "Initializing..." },
+        { label: "Operational Status", value: "Awaiting Genesis" },
+        { label: "Validation Queue", value: "Pending Activation" },
+        { label: "Connection Status", value: "Protected Access" }
       ],
       newsTitle: "LATEST EVENTS & ANNOUNCEMENTS",
       newsSub: "Stay updated with recent breakthroughs, milestones, and GrokGold industrial news.",

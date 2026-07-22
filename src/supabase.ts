@@ -187,7 +187,8 @@ export function getLocalAccounts(): UserAccount[] {
 
 export function saveLocalAccounts(accounts: UserAccount[]) {
   try {
-    localStorage.setItem('grockgold_local_db_accounts', JSON.stringify(accounts));
+    const sanitized = accounts.map(({ password, ...rest }) => rest);
+    localStorage.setItem('grockgold_local_db_accounts', JSON.stringify(sanitized));
   } catch (e) {
     console.error('Failed to save local db accounts:', e);
   }
