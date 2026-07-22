@@ -4,6 +4,7 @@ import { useAppState } from '../AppContext';
 import { useAuth } from '../hooks/useAuth';
 import { TRANSLATIONS } from '../translations';
 import { User, Lock, Mail, Globe, Gift, ChevronLeft, ArrowDown, ArrowUp } from 'lucide-react';
+import { SearchableCountrySelect } from './SearchableCountrySelect';
 // @ts-ignore
 import goldLogo from '../assets/images/gold_logo_icon_1784365650875.jpg';
 
@@ -41,6 +42,7 @@ export const AuthContainer: React.FC = () => {
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
+  const [regCountry, setRegCountry] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [regReferralCode, setRegReferralCode] = useState('');
@@ -71,7 +73,8 @@ export const AuthContainer: React.FC = () => {
       regPassword,
       regConfirmPassword,
       regReferralCode,
-      regAgreed
+      regAgreed,
+      regCountry
     );
   };
 
@@ -290,6 +293,13 @@ export const AuthContainer: React.FC = () => {
                         />
                       </div>
                     </div>
+
+                    {/* Country */}
+                    <SearchableCountrySelect
+                      value={regCountry}
+                      onChange={setRegCountry}
+                      label={tAuth.country || (language === 'id' ? 'NEGARA' : 'COUNTRY')}
+                    />
 
                     {/* Password */}
                     <div>

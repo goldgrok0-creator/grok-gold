@@ -36,6 +36,7 @@ export interface UserAccount {
   username: string;
   email: string;
   phone: string;
+  country?: string;
   password: string;
   referralCode: string; // User's personal invite code
   invitedBy: string | null; // Referrer's username

@@ -92,6 +92,7 @@ import HelpPage from './components/HelpPage';
 import PrivacyPolicyPage from './components/PrivacyPolicyPage';
 import TermsOfServicePage from './components/TermsOfServicePage';
 import ContactInfoPage from './components/ContactInfoPage';
+import { SearchableCountrySelect } from './components/SearchableCountrySelect';
 import ContractPage from './components/ContractPage';
 import NetworkPage from './components/NetworkPage';
 import WalletPage from './components/WalletPage';
@@ -215,6 +216,7 @@ export default function App() {
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
+  const [regCountry, setRegCountry] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [regReferralCode, setRegReferralCode] = useState('');
@@ -1728,6 +1730,7 @@ export default function App() {
       username,
       email,
       phone,
+      country: regCountry || 'Indonesia',
       password,
       referralCode: personalReferralCode,
       invitedBy: sponsorUsername,
@@ -1746,6 +1749,7 @@ export default function App() {
         setRegUsername('');
         setRegEmail('');
         setRegPhone('');
+        setRegCountry('');
         setRegPassword('');
         setRegConfirmPassword('');
         setRegReferralCode('');
@@ -3597,6 +3601,13 @@ export default function App() {
                             />
                           </div>
                         </div>
+
+                        {/* Country */}
+                        <SearchableCountrySelect
+                          value={regCountry}
+                          onChange={setRegCountry}
+                          label={tAuth.country || (language === 'id' ? 'NEGARA' : 'COUNTRY')}
+                        />
 
                         {/* Password */}
                         <div>

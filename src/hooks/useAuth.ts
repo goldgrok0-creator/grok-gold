@@ -174,12 +174,14 @@ export const useAuth = () => {
     passwordInput: string,
     confirmPasswordInput: string,
     refCodeInput: string,
-    regAgreed: boolean
+    regAgreed: boolean,
+    countryInput?: string
   ) => {
     const fullName = fullNameInput.trim().toUpperCase();
     const username = usernameInput.trim().replace(/\s+/g, '');
     const email = emailInput.trim();
     const phone = phoneInput.trim();
+    const country = (countryInput || 'Indonesia').trim();
     const password = passwordInput;
     const confirmPassword = confirmPasswordInput;
     const refCode = refCodeInput.trim();
@@ -283,6 +285,7 @@ export const useAuth = () => {
       username,
       email,
       phone,
+      country,
       password,
       referralCode: personalReferralCode,
       invitedBy: sponsorUsername,

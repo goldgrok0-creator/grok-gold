@@ -14,6 +14,7 @@ import { useAppState } from '../AppContext';
 import { useAuth } from '../hooks/useAuth';
 import WelcomeTicker from '../components/WelcomeTicker';
 import { TRANSLATIONS } from '../translations';
+import { SearchableCountrySelect } from '../components/SearchableCountrySelect';
 
 // @ts-ignore
 import goldLogo from '../assets/images/gold_logo_icon_1784365650875.jpg';
@@ -48,6 +49,7 @@ export const AuthPage: React.FC = () => {
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
+  const [regCountry, setRegCountry] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [regReferralCode, setRegReferralCode] = useState('');
@@ -78,7 +80,8 @@ export const AuthPage: React.FC = () => {
       regPassword,
       regConfirmPassword,
       regReferralCode,
-      regAgreed
+      regAgreed,
+      regCountry
     );
   };
 
@@ -306,6 +309,13 @@ export const AuthPage: React.FC = () => {
                       />
                     </div>
                   </div>
+
+                  {/* Country */}
+                  <SearchableCountrySelect
+                    value={regCountry}
+                    onChange={setRegCountry}
+                    label={tAuth.country || (language === 'id' ? 'NEGARA' : 'COUNTRY')}
+                  />
 
                   {/* Password */}
                   <div>
