@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { UserAccount, Transaction, AppState, CONFIG } from './types';
+import { telegramService } from './services/telegramService';
 
 // Hash function to prevent storing passwords in plaintext
 export async function hashPassword(password: string): Promise<string> {
@@ -96,6 +97,7 @@ export function getLocalAccounts(): UserAccount[] {
     username: 'admin',
     email: 'admin@grockgold.com',
     phone: '+6281234567890',
+    role: 'admin',
     password: 'fb_a559ea12' /* admin123 */,
     referralCode: '',
     invitedBy: null,
@@ -132,6 +134,7 @@ export function getLocalAccounts(): UserAccount[] {
     username: 'member1',
     email: 'member1@grockgold.com',
     phone: '+628111222333',
+    role: 'user',
     password: 'fb_9e000000' /* password123 */,
     referralCode: 'GOLD1',
     invitedBy: null,
@@ -654,6 +657,7 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
         username: user.username,
         email: user.email || '',
         phone: user.phone || '',
+        role: user.role || (user.username?.toLowerCase() === 'admin' ? 'admin' : 'user'),
         password: user.password || '',
         referralCode: user.username.toLowerCase() === 'admin' ? '' : (user.referral_code || ''),
         invitedBy: user.invited_by || null,
@@ -833,6 +837,16 @@ export async function createDepositInSupabase(
       }
       return true;
     }
+
+    telegramService.sendNotification({
+      username,
+      eventType: 'deposit',
+      title: 'Pengajuan Deposit Baru',
+      message: `Pengajuan deposit sebesar Rp ${amount.toLocaleString('id-ID')} (${paymentMethod}) telah berhasil dikirim dan menunggu verifikasi admin.`,
+      amount,
+      status: 'pending'
+    }).catch(() => {});
+
     return true;
   } catch (err) {
     console.error('Pending deposit creation crash:', err);
@@ -906,6 +920,16 @@ export async function createWithdrawalInSupabase(
       console.error('Atomic Withdrawal Creation error:', wdInsert.error || userUpdate.error);
       return false;
     }
+
+    telegramService.sendNotification({
+      username,
+      eventType: 'withdraw',
+      title: 'Pengajuan Penarikan Saldo',
+      message: `Pengajuan penarikan dana sebesar Rp ${amount.toLocaleString('id-ID')} (${bankName} - ${accountNumber}) telah diterima dan sedang diproses.`,
+      amount,
+      status: 'pending'
+    }).catch(() => {});
+
     return true;
   } catch (err) {
     console.error('Withdraw request query crash:', err);
@@ -1059,6 +1083,16 @@ export async function approveDepositInSupabase(
       console.error('Atomic Deposit Approval error:', depUpdate.error || userUpdate.error);
       return false;
     }
+
+    telegramService.sendNotification({
+      username,
+      eventType: 'deposit',
+      title: 'Deposit Disetujui! 💳',
+      message: `Deposit Anda sebesar Rp ${amount.toLocaleString('id-ID')} telah disetujui! Saldo utama Anda telah bertambah.`,
+      amount,
+      status: 'approved'
+    }).catch(() => {});
+
     return true;
   } catch (err) {
     console.error('Approve deposit crash:', err);
@@ -1090,6 +1124,17 @@ export async function rejectDepositInSupabase(depositId: string, rejectionReason
       .update({ status: 'rejected', payment_method: updatedPaymentMethod })
       .eq('id', depositId);
 
+    if (!error) {
+      telegramService.sendNotification({
+        username: dep.username,
+        eventType: 'deposit',
+        title: 'Deposit Ditolak ⚠️',
+        message: `Pengajuan deposit Anda sebesar Rp ${Number(dep.amount).toLocaleString('id-ID')} ditolak. Alasan: ${rejectionReason || 'Verifikasi bukti tidak sesuai'}.`,
+        amount: dep.amount,
+        status: 'rejected'
+      }).catch(() => {});
+    }
+
     return !error;
   } catch (err) {
     console.error('Reject deposit crash:', err);
@@ -1111,6 +1156,16 @@ export async function approveWithdrawalInSupabase(withdrawId: string, username: 
       console.error('Withdrawal Approval error:', error);
       return false;
     }
+
+    telegramService.sendNotification({
+      username,
+      eventType: 'withdraw',
+      title: 'Penarikan Disetujui! 💸',
+      message: `Pengajuan penarikan dana sebesar Rp ${amount.toLocaleString('id-ID')} telah berhasil diproses oleh admin ke rekening Anda.`,
+      amount,
+      status: 'approved'
+    }).catch(() => {});
+
     return true;
   } catch (err) {
     console.error('Approve withdrawal crash:', err);
@@ -1142,6 +1197,16 @@ export async function rejectWithdrawalInSupabase(withdrawId: string): Promise<bo
       console.error('Atomic Withdrawal Rejection/Refund error:', wdUpdate.error || userUpdate.error);
       return false;
     }
+
+    telegramService.sendNotification({
+      username: wd.username,
+      eventType: 'withdraw',
+      title: 'Penarikan Ditolak & Saldo Dikembalikan ⚠️',
+      message: `Pengajuan penarikan sebesar Rp ${refundAmount.toLocaleString('id-ID')} ditolak. Dana telah dikembalikan ke saldo utama Anda.`,
+      amount: refundAmount,
+      status: 'rejected'
+    }).catch(() => {});
+
     return true;
   } catch (err) {
     console.error('Reject withdrawal crash:', err);
@@ -1338,6 +1403,17 @@ export async function claimWelcomeBonusInSupabase(username: string): Promise<boo
       })
     ]);
 
+    if (!userUpdate.error && !txInsert.error) {
+      telegramService.sendNotification({
+        username,
+        eventType: 'claim',
+        title: 'Klaim Welcome Bonus! 🎁',
+        message: `Selamat! Welcome bonus sebesar Rp ${bonusAmount.toLocaleString('id-ID')} telah dikreditkan ke saldo reward Anda.`,
+        amount: bonusAmount,
+        status: 'claimed'
+      }).catch(() => {});
+    }
+
     return !userUpdate.error && !txInsert.error;
   } catch (err) {
     console.error('Error claiming welcome bonus:', err);
@@ -1348,9 +1424,7 @@ export async function claimWelcomeBonusInSupabase(username: string): Promise<boo
 // Claim Daily Reward (2% Contract Yield directly credited to reward_balance)
 export async function claimDailyRewardInSupabase(
   username: string, 
-  amount: number, 
-  streakBonus: number = 0, 
-  currentStreak: number = 1
+  amount: number
 ): Promise<{ 
   success: boolean; 
   error?: string;
@@ -1443,34 +1517,16 @@ export async function claimDailyRewardInSupabase(
       contractValue,
       rewardRate,
       calculatedReward,
-      finalRewardCredited,
-      streakBonus,
-      currentStreak
+      finalRewardCredited
     });
 
-    const totalCredited = finalRewardCredited + streakBonus;
+    const totalCredited = finalRewardCredited;
     const newRewardBalance = currentRewardBalance + totalCredited;
     const newTotalEarned = currentEarned + totalCredited;
     const txId = 'CLM-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
-    // Prepare updated settings with claimStreak and claimStreakHistory
+    // User settings update
     const userSettings = user.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false };
-    const nextSettings = {
-      ...userSettings,
-      claimStreak: currentStreak,
-      claimStreakHistory: [
-        {
-          id: txId,
-          date: now,
-          amount: totalCredited,
-          streak: currentStreak,
-          status: 'Success',
-          balanceBefore: currentRewardBalance,
-          balanceAfter: newRewardBalance
-        },
-        ...(userSettings.claimStreakHistory || [])
-      ].slice(0, 10)
-    };
 
     // Credit directly to reward_balance, main_balance remains UNCHANGED
     const [userUpdate, txInsert] = await Promise.all([
@@ -1478,14 +1534,14 @@ export async function claimDailyRewardInSupabase(
         reward_balance: newRewardBalance,
         total_earned: newTotalEarned,
         last_claim_time: now,
-        settings: nextSettings
+        settings: userSettings
       }).eq('username', username),
       supabase.from('transactions').insert({
         id: txId,
         username,
         type: 'reward',
         amount: totalCredited,
-        description: `Daily Reward (2% Contract Yield)${streakBonus > 0 ? ` + Bonus Streak Rp ${streakBonus.toLocaleString('id-ID')}` : ''}${finalRewardCredited < claimAmount ? ' [Capped]' : ''}`,
+        description: `Daily Reward (2% Contract Yield)${finalRewardCredited < claimAmount ? ' [Capped]' : ''}`,
         created_at: now
       })
     ]);
@@ -1498,6 +1554,15 @@ export async function claimDailyRewardInSupabase(
       console.error('Supabase txInsert error:', txInsert.error);
       return { success: false, error: txInsert.error.message };
     }
+
+    telegramService.sendNotification({
+      username,
+      eventType: 'claim',
+      title: 'Klaim Daily Reward Sukses! 🎁',
+      message: `Selamat! Hasil tambang harian sebesar Rp ${totalCredited.toLocaleString('id-ID')} telah berhasil dikreditkan ke saldo reward Anda.`,
+      amount: totalCredited,
+      status: 'claimed'
+    }).catch(() => {});
 
     return { 
       success: true, 

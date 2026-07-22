@@ -8,217 +8,9 @@ import { useAppState } from '../AppContext';
 import { useAdmin } from '../hooks/useAdmin';
 import { CONFIG } from '../types';
 import { TRANSLATIONS } from '../translations';
+import { CommunityPage } from '../components/CommunityPage';
 
-// ==========================================
-// 👥 COMMUNITY PAGE
-// ==========================================
-export const CommunityPage: React.FC = () => {
-  const { state, language, setCurrentTab, triggerModal } = useAppState();
-  const [chatInput, setChatInput] = useState('');
-  const [communityMessages, setCommunityMessages] = useState([
-    {
-      id: '1',
-      user: 'reza_gold',
-      text: 'Baru gabung kemarin langsung lancar WD Rp 150.000, mantap PT GrockGold!',
-      time: '12:34',
-      initials: 'RG',
-      isSelf: false
-    },
-    {
-      id: '2',
-      user: 'admin',
-      text: 'Halo @reza_gold! Selamat bergabung di platform penambangan terdesentralisasi kami. Happy Mining!',
-      time: '12:40',
-      initials: 'AD',
-      isSelf: false
-    },
-    {
-      id: '3',
-      user: 'dewi_sari',
-      text: 'Booster EXC-700 nambah speed hashrate beneran kerasa 1.5x lebih kencang.',
-      time: '13:01',
-      initials: 'DS',
-      isSelf: false
-    }
-  ]);
-
-  const t = TRANSLATIONS[language];
-
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const newMsg = {
-      id: Date.now().toString(),
-      user: state.username.toLowerCase(),
-      text: chatInput,
-      time: timeStr,
-      initials: state.username.slice(0, 2).toUpperCase(),
-      isSelf: true
-    };
-    setCommunityMessages(prev => [...prev, newMsg]);
-    setChatInput('');
-    
-    // Auto Response Simulation
-    setTimeout(() => {
-      const botNames = ['andi_wijaya', 'sari_grock', 'm_ikbal', 'admin'];
-      const botInitials = ['AW', 'SG', 'MI', 'AD'];
-      const botResponses = [
-        'Mantap gan! Hashing hashrate saya hari ini tembus 12% profit harian.',
-        'Ada yang tahu min WD hari ini berapa ya?',
-        'Min WD cuma Rp 100.000 saja kak, prosesnya super instan langsung masuk!',
-        'Selamat bergabung semuanya! Silakan hubungi Telegram Group untuk panduan claim welcome bonus 1.8M.'
-      ];
-      const idx = Math.floor(Math.random() * botResponses.length);
-      setCommunityMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        user: botNames[idx],
-        text: botResponses[idx],
-        time: timeStr,
-        initials: botInitials[idx],
-        isSelf: false
-      }]);
-    }, 2000);
-  };
-
-  return (
-    <div className="space-y-4 text-left">
-      <div className="flex items-center gap-2 border-b border-purple-500/15 pb-3">
-        <ChevronLeft className="w-5 h-5 text-slate-400 cursor-pointer hover:text-white transition" onClick={() => setCurrentTab('home')} />
-        <h2 className="text-xs font-black tracking-widest text-white uppercase bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent font-orbitron">
-          {language === 'id' ? 'KOMUNITAS RESMI' : 'OFFICIAL COMMUNITY'}
-        </h2>
-      </div>
-
-      {/* Member Stats */}
-      <div className="grid grid-cols-3 gap-2">
-        <div className="bg-black/40 border border-white/5 rounded-2xl p-2.5 text-center">
-          <span className="text-[8px] text-slate-400 font-bold block mb-0.5 uppercase">{language === 'id' ? 'Anggota' : 'Members'}</span>
-          <span className="text-xs font-black text-emerald-400 font-mono">124.8K</span>
-        </div>
-        <div className="bg-black/40 border border-white/5 rounded-2xl p-2.5 text-center">
-          <span className="text-[8px] text-slate-400 font-bold block mb-0.5 uppercase">{language === 'id' ? 'Aktif' : 'Active'}</span>
-          <span className="text-xs font-black text-cyan-400 font-mono">42.9K</span>
-        </div>
-        <div className="bg-black/40 border border-white/5 rounded-2xl p-2.5 text-center">
-          <span className="text-[8px] text-slate-400 font-bold block mb-0.5 uppercase">Hashrate</span>
-          <span className="text-xs font-black text-yellow-500 font-mono">4.82 EH/s</span>
-        </div>
-      </div>
-
-      {/* Social Groups Grid */}
-      <div className="bg-[#0b0519] border border-emerald-500/15 rounded-3xl p-4 shadow-xl space-y-3">
-        <div className="text-[10px] font-black text-slate-300 uppercase tracking-wider mb-2">
-          {language === 'id' ? 'Gabung Komunitas Kami' : 'Join Our Communities'}
-        </div>
-
-        <div className="grid grid-cols-1 gap-2 font-sans">
-          <button
-            onClick={() => {
-              triggerModal(language === 'id' ? '🎉 Berhasil terhubung ke WhatsApp VIP Lounge!' : '🎉 Connected to WhatsApp VIP Lounge!', 'success');
-            }}
-            className="w-full p-3 rounded-2xl bg-[#091f14] border border-emerald-500/20 hover:border-emerald-400/40 transition flex items-center justify-between text-left cursor-pointer group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-                <MessageCircle className="w-4 h-4 text-emerald-400" />
-              </div>
-              <div>
-                <div className="text-xs font-black text-white leading-none">WhatsApp VVIP Lounge</div>
-                <span className="text-[8px] text-slate-400 font-bold uppercase mt-1 block">{language === 'id' ? 'Khusus Deposit Premium' : 'Premium Depositors Only'}</span>
-              </div>
-            </div>
-            <span className="text-xs text-emerald-400 font-black group-hover:translate-x-1 transition-transform">JOIN ➔</span>
-          </button>
-
-          <button
-            onClick={() => {
-              triggerModal(language === 'id' ? '🎉 Berhasil terhubung ke Telegram GrockGold Official!' : '🎉 Connected to Telegram GrockGold Official!', 'success');
-            }}
-            className="w-full p-3 rounded-2xl bg-[#0a1829] border border-blue-500/20 hover:border-blue-400/40 transition flex items-center justify-between text-left cursor-pointer group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                <Send className="w-4 h-4 text-blue-400" />
-              </div>
-              <div>
-                <div className="text-xs font-black text-white leading-none">Telegram GrockGold Indo</div>
-                <span className="text-[8px] text-slate-400 font-bold uppercase mt-1 block">48,203 Active Subscribers</span>
-              </div>
-            </div>
-            <span className="text-xs text-blue-400 font-black group-hover:translate-x-1 transition-transform">JOIN ➔</span>
-          </button>
-
-          <button
-            onClick={() => {
-              triggerModal(language === 'id' ? '🎉 Berhasil terhubung ke Discord Server Hub!' : '🎉 Connected to Discord Server Hub!', 'success');
-            }}
-            className="w-full p-3 rounded-2xl bg-[#110e24] border border-indigo-500/20 hover:border-indigo-400/40 transition flex items-center justify-between text-left cursor-pointer group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
-                <MessageSquare className="w-4 h-4 text-indigo-400" />
-              </div>
-              <div>
-                <div className="text-xs font-black text-white leading-none">Discord Global Server</div>
-                <span className="text-[8px] text-slate-400 font-bold uppercase mt-1 block">12,410 Online Hashing Leaders</span>
-              </div>
-            </div>
-            <span className="text-xs text-indigo-400 font-black group-hover:translate-x-1 transition-transform">JOIN ➔</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Chatroom Live Discussion */}
-      <div className="bg-[#0b0519] border border-purple-500/10 rounded-3xl p-4 shadow-xl space-y-3 flex flex-col h-[320px]">
-        <div className="text-[10px] font-black text-slate-300 uppercase tracking-wider mb-1 flex justify-between items-center font-sans">
-          <span>💬 {language === 'id' ? 'Obrolan Komunitas (Live)' : 'Community Chat (Live)'}</span>
-          <span className="text-[8px] text-emerald-400 animate-pulse">● 4,921 ONLINE</span>
-        </div>
-
-        {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto space-y-2.5 pr-1.5 scrollbar-thin text-left">
-          {communityMessages.map((msg) => (
-            <div key={msg.id} className={`flex items-start gap-2.5 ${msg.isSelf ? 'flex-row-reverse' : ''}`}>
-              <div className={`w-7.5 h-7.5 rounded-full flex items-center justify-center text-[10px] font-black border ${msg.isSelf ? 'bg-gradient-to-r from-yellow-300 to-gold-primary border-yellow-400 text-black' : 'bg-purple-900/45 text-purple-200 border-purple-800/30'}`}>
-                {msg.initials}
-              </div>
-              <div className={`flex flex-col max-w-[70%] ${msg.isSelf ? 'items-end' : 'items-start'} font-sans`}>
-                <span className="text-[8px] font-black text-slate-400 mb-0.5 flex items-center gap-1">
-                  @{msg.user}
-                  {msg.user === 'admin' && <span className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-1 rounded text-[7px]">STAFF</span>}
-                </span>
-                <div className={`p-2.5 rounded-2xl text-[10px] font-semibold leading-normal ${msg.isSelf ? 'bg-purple-800/20 text-yellow-300 border border-purple-500/20 rounded-tr-none' : 'bg-white/[0.02] text-slate-200 border border-white/5 rounded-tl-none'}`}>
-                  {msg.text}
-                </div>
-                <span className="text-[7.5px] text-slate-500 mt-1 font-mono">{msg.time}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Chat Input Field Form */}
-        <form onSubmit={handleSendMessage} className="flex gap-2 pt-2 border-t border-white/5">
-          <input
-            type="text"
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            placeholder={language === 'id' ? 'Ketik pesan Anda...' : 'Type message here...'}
-            className="flex-1 bg-black/55 border border-white/5 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-purple-500/40 font-sans"
-          />
-          <button
-            type="submit"
-            className="px-4 bg-gradient-to-r from-yellow-300 via-gold-primary to-yellow-600 text-black font-extrabold rounded-xl text-xs uppercase cursor-pointer"
-          >
-            <Send className="w-3.5 h-3.5" />
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-};
+export { CommunityPage };
 
 // ==========================================
 // 🗃️ TRANSACTIONS HISTORY PAGE
@@ -267,8 +59,8 @@ export const TransactionsPage: React.FC = () => {
           ) : (
             state.transactions
               .filter(t => txFilter === 'all' || t.type === txFilter)
-              .map((tx) => (
-                <div key={tx.id} className="p-3 bg-black/40 border border-white/5 rounded-2xl flex items-center justify-between">
+              .map((tx, idx) => (
+                <div key={`${tx.id}-${idx}`} className="p-3 bg-black/40 border border-white/5 rounded-2xl flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className={`p-2 rounded-xl border ${
                       tx.type === 'deposit' || tx.type === 'reward'
@@ -373,8 +165,8 @@ export const NotificationsPage: React.FC = () => {
         </div>
 
         <div className="space-y-3.5 max-h-[400px] overflow-y-auto pr-1">
-          {bulletins.map((n) => (
-            <div key={n.id} className="p-4 bg-black/45 border border-white/5 rounded-2xl flex gap-3 text-left font-sans">
+          {bulletins.map((n, idx) => (
+            <div key={`${n.id}-${idx}`} className="p-4 bg-black/45 border border-white/5 rounded-2xl flex gap-3 text-left font-sans">
               <div className="mt-0.5 shrink-0">
                 <div className={`p-1.5 rounded-lg border ${
                   n.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
@@ -573,9 +365,9 @@ export const ErrorHistoryPage: React.FC = () => {
               );
             }
 
-            return filtered.map((err) => (
+            return filtered.map((err, idx) => (
               <div
-                key={err.id}
+                key={`${err.id}-${idx}`}
                 className={`p-4 bg-black/45 border rounded-2xl flex gap-3 text-left transition duration-300 relative overflow-hidden font-sans ${
                   err.resolved
                     ? 'border-white/5'

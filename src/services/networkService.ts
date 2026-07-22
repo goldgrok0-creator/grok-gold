@@ -1,4 +1,4 @@
-import { UserAccount } from '../types';
+import { UserAccount, isMemberAccount } from '../types';
 
 export const networkService = {
   async recordClick(referralCode: string, source: string): Promise<boolean> {
@@ -14,19 +14,19 @@ export const networkService = {
   calculateDownline(username: string, accounts: UserAccount[]) {
     // Direct Referrals (Level 1)
     const direct = accounts.filter(
-      acc => acc.invitedBy && acc.invitedBy.toLowerCase() === username.toLowerCase()
+      acc => isMemberAccount(acc) && acc.invitedBy && acc.invitedBy.toLowerCase() === username.toLowerCase()
     );
 
     // Level 2 (Referred by Level 1)
     const directUsernames = direct.map(d => d.username.toLowerCase());
     const l2 = accounts.filter(
-      acc => acc.invitedBy && directUsernames.includes(acc.invitedBy.toLowerCase())
+      acc => isMemberAccount(acc) && acc.invitedBy && directUsernames.includes(acc.invitedBy.toLowerCase())
     );
 
     // Level 3 (Referred by Level 2)
     const l2Usernames = l2.map(l => l.username.toLowerCase());
     const l3 = accounts.filter(
-      acc => acc.invitedBy && l2Usernames.includes(acc.invitedBy.toLowerCase())
+      acc => isMemberAccount(acc) && acc.invitedBy && l2Usernames.includes(acc.invitedBy.toLowerCase())
     );
 
     return { direct, l2, l3 };

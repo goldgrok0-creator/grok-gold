@@ -42,8 +42,9 @@ export default function Deposit({
   useEffect(() => {
     fetchDirectDeposits();
 
+    const channelName = `direct-deposits-admin-refresh_${Math.random().toString(36).substring(2, 9)}`;
     const channel = supabase
-      .channel('direct-deposits-admin-refresh')
+      .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deposits' }, () => {
         fetchDirectDeposits();
       })

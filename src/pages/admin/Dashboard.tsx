@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { TrendingUp, Users, Wallet as WalletIcon, Briefcase, Clock } from 'lucide-react';
-import { UserAccount } from '../../types';
+import { UserAccount, isMemberAccount } from '../../types';
 
 interface DashboardProps {
   accounts: UserAccount[];
@@ -12,13 +12,14 @@ interface DashboardProps {
 export default function Dashboard({ accounts, systemConfig, language, onNavigate }: DashboardProps) {
   // --- STATS COMPUTATION ---
   const stats = useMemo(() => {
-    const totalUsers = accounts.length - 1; // Exclude admin
+    const memberAccounts = accounts.filter(isMemberAccount);
+    const totalUsers = memberAccounts.length;
     let totalBalances = 0;
     let totalContracts = 0;
     let allTransactions: { tx: any; username: string }[] = [];
 
     accounts.forEach(acc => {
-      if (acc.username.toLowerCase() !== 'admin') {
+      if (isMemberAccount(acc)) {
         totalBalances += acc.state?.mainBalance || 0;
         totalContracts += acc.state?.activeContracts || 0;
       }

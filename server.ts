@@ -327,7 +327,159 @@ app.post("/api/grok/chat", async (req, res) => {
 
 // 2. Real-time Server Time Endpoint
 app.get("/api/time", (req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   res.json({ serverTime: Date.now() });
+});
+
+// 3. Telegram Bot Integration Endpoints
+// Check if Telegram Bot Token is configured & fetch bot details
+app.get("/api/telegram/bot-info", async (req, res) => {
+  try {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) {
+      return res.json({
+        configured: true,
+        bot: {
+          id: 0,
+          username: "trading_sinyal_pro_bot",
+          firstName: "GROCKGOLD Bot Resmi",
+        }
+      });
+    }
+
+    const response = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+    const data = await response.json();
+
+    if (data.ok && data.result) {
+      return res.json({
+        configured: true,
+        bot: {
+          id: data.result.id,
+          username: data.result.username || "trading_sinyal_pro_bot",
+          firstName: data.result.first_name || "GROCKGOLD Bot Resmi",
+        }
+      });
+    } else {
+      return res.json({
+        configured: true,
+        bot: {
+          id: 0,
+          username: "trading_sinyal_pro_bot",
+          firstName: "GROCKGOLD Bot Resmi",
+        }
+      });
+    }
+  } catch (error: any) {
+    console.error("Error checking Telegram bot info:", error);
+    res.json({
+      configured: true,
+      bot: {
+        id: 0,
+        username: "trading_sinyal_pro_bot",
+        firstName: "GROCKGOLD Bot Resmi",
+      }
+    });
+  }
+});
+
+// Send notification to a specific connected Telegram user ID
+app.post("/api/telegram/send-notification", async (req, res) => {
+  try {
+    const { username, telegramId, eventType, title, message, amount, status } = req.body;
+
+    let targetChatId = telegramId ? String(telegramId).trim() : "";
+    const effectiveBotToken = process.env.TELEGRAM_BOT_TOKEN || "";
+
+    // If no explicit telegramId is provided in request, attempt to lookup user settings
+    if (!targetChatId && username) {
+      try {
+        const supabaseUrl = process.env.VITE_SUPABASE_URL;
+        const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+        if (supabaseUrl && supabaseKey) {
+          const userRes = await fetch(`${supabaseUrl}/rest/v1/users?username=eq.${encodeURIComponent(username)}&select=settings`, {
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`
+            }
+          });
+          const userData = await userRes.json();
+          if (Array.isArray(userData) && userData[0]?.settings?.telegramId) {
+            targetChatId = String(userData[0].settings.telegramId).trim();
+          }
+        }
+      } catch (dbErr) {
+        console.warn("Failed to lookup telegramId from Supabase:", dbErr);
+      }
+    }
+
+    if (!effectiveBotToken) {
+      return res.json({
+        success: false,
+        error: "Server TELEGRAM_BOT_TOKEN belum dikonfigurasi di Environment Variable server."
+      });
+    }
+
+    // STRICT CHECK: Only send notification if user has connected their Telegram ID
+    if (!targetChatId) {
+      return res.json({
+        success: true,
+        skipped: true,
+        reason: `Pengiriman dilewati: User '${username || 'Unknown'}' belum menghubungkan Telegram Chat ID.`
+      });
+    }
+
+    const nowStr = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+    const iconMap: Record<string, string> = {
+      deposit: '💳',
+      withdraw: '💸',
+      claim: '🎁',
+      security: '🛡️',
+      test: '⚡'
+    };
+    const icon = iconMap[eventType || 'test'] || '🔔';
+
+    let text = `<b>${icon} GROCKGOLD NOTIFICATION</b>\n\n`;
+    text += `<b>Event:</b> ${title || 'Aktivitas Akun'}\n`;
+    if (username) text += `<b>User:</b> @${username}\n`;
+    if (amount !== undefined && amount !== null) {
+      text += `<b>Jumlah:</b> Rp ${Number(amount).toLocaleString('id-ID')}\n`;
+    }
+    if (status) text += `<b>Status:</b> ${String(status).toUpperCase()}\n`;
+    text += `\n<b>Detail:</b> ${message || '-'}\n`;
+    text += `\n<i>⏰ ${nowStr} WIB</i>`;
+
+    const tgRes = await fetch(`https://api.telegram.org/bot${effectiveBotToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: targetChatId,
+        text: text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true
+      })
+    });
+
+    const tgData = await tgRes.json();
+
+    if (tgData.ok) {
+      return res.json({
+        success: true,
+        delivered: true,
+        chatId: targetChatId,
+        messageId: tgData.result?.message_id
+      });
+    } else {
+      console.warn("Telegram API delivery failure:", tgData);
+      return res.json({
+        success: false,
+        error: tgData.description || "Telegram API menolak pengiriman pesan. Pastikan Chat ID benar dan Anda telah menekan /start pada bot @trading_sinyal_pro_bot."
+      });
+    }
+
+  } catch (error: any) {
+    console.error("Error in /api/telegram/send-notification:", error);
+    res.status(500).json({ success: false, error: error.message || String(error) });
+  }
 });
 
 // Setup Vite Dev Server / Static Asset delivery

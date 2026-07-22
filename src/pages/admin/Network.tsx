@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { UserAccount } from '../../types';
+import { UserAccount, isMemberAccount } from '../../types';
 
 interface NetworkProps {
   accounts: UserAccount[];
@@ -16,15 +16,15 @@ export default function Network({ accounts, language }: NetworkProps) {
     if (!targetUser) return null;
 
     // Find level 1
-    const level1 = accounts.filter(acc => acc.invitedBy?.toLowerCase() === targetUser.username.toLowerCase());
+    const level1 = accounts.filter(acc => isMemberAccount(acc) && acc.invitedBy?.toLowerCase() === targetUser.username.toLowerCase());
     
     // Find level 2
     const level1Usernames = level1.map(acc => acc.username.toLowerCase());
-    const level2 = accounts.filter(acc => acc.invitedBy && level1Usernames.includes(acc.invitedBy.toLowerCase()));
+    const level2 = accounts.filter(acc => isMemberAccount(acc) && acc.invitedBy && level1Usernames.includes(acc.invitedBy.toLowerCase()));
 
     // Find level 3
     const level2Usernames = level2.map(acc => acc.username.toLowerCase());
-    const level3 = accounts.filter(acc => acc.invitedBy && level2Usernames.includes(acc.invitedBy.toLowerCase()));
+    const level3 = accounts.filter(acc => isMemberAccount(acc) && acc.invitedBy && level2Usernames.includes(acc.invitedBy.toLowerCase()));
 
     return {
       user: targetUser,

@@ -10,7 +10,7 @@ import {
   TrendingUp,
   Award
 } from 'lucide-react';
-import { UserAccount, AppState } from '../types';
+import { UserAccount, AppState, CONFIG, isMemberAccount } from '../types';
 
 // Premium responsive 3D Crown SVG for Podium Cards
 const CrownSVG = ({ rank }: { rank: number }) => {
@@ -208,60 +208,109 @@ export default function Leaderboard({
   // Real dynamic sorting & scoring using database accounts with absolute business-logic accuracy
   const processedLeaderboard = useMemo(() => {
     // Exclude admin from the leaderboard
-    const filteredAccounts = accounts.filter(u => u.username.toLowerCase() !== 'admin');
+    let filteredAccounts = accounts.filter(isMemberAccount);
+
+    // Ensure current logged in user is included if non-admin
+    if (currentAccount && isMemberAccount(currentAccount)) {
+      const exists = filteredAccounts.some(u => u.username.toLowerCase() === currentAccount.username.toLowerCase());
+      if (!exists) {
+        filteredAccounts = [currentAccount, ...filteredAccounts];
+      }
+    }
 
     const isWeekly = leaderboardFilter === 'weekly';
     const isMonthly = leaderboardFilter === 'monthly';
-    const periodFactor = isWeekly ? 0.3 : isMonthly ? 0.7 : 1.0;
+    const now = Date.now();
+    const weekAgo = now - 7 * 86400 * 1000;
+    const monthAgo = now - 30 * 86400 * 1000;
 
     const mapped = filteredAccounts.map(u => {
       const isSelf = currentAccount && u.username.toLowerCase() === currentAccount.username.toLowerCase();
-      const activeState = isSelf ? state : u.state;
+      const activeState = isSelf ? { ...u.state, ...state } : u.state;
 
-      // 1. Deposit: Accumulation of successful deposits (approved)
+      // 1. Deposit: Accumulation of successful deposits (approved/completed)
       const approvedDeposits = (activeState?.transactions || []).filter(
         tx => tx.type === 'deposit' && (
           tx.status === 'approved' || 
+          tx.status === 'success' ||
+          tx.status === 'completed' ||
           tx.status === undefined || 
           tx.description.includes('Disetujui') || 
           tx.description.includes('Berhasil') || 
-          tx.description.includes('Otomatis')
-        )
+          tx.description.includes('Otomatis') ||
+          tx.description.includes('selesai') ||
+          tx.description.toLowerCase().includes('deposit')
+        ) && tx.status !== 'rejected' && tx.status !== 'pending'
       );
-      const totalApprovedDepositsAmount = approvedDeposits.reduce((sum, tx) => sum + tx.amount, 0);
+      const totalDepositFromTxs = approvedDeposits.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+      const contractValue = (activeState?.activeContracts || 0) * CONFIG.PRICE_PER_UNIT;
+      const totalDeposit = Math.max(totalDepositFromTxs, contractValue);
 
-      // 2. Referral: Number of direct (L1) referrals with at least 1 active contract
-      const activeReferralsCount = accounts.filter(
-        acc => acc.invitedBy && 
-               acc.invitedBy.toLowerCase() === u.username.toLowerCase() && 
-               (acc.state?.activeContracts || 0) >= 1
-      ).length;
+      let finalDeposit = totalDeposit;
+      if (isWeekly) {
+        const weeklyTxs = approvedDeposits.filter(tx => tx.date >= weekAgo);
+        const weeklySum = weeklyTxs.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+        if (weeklySum > 0) finalDeposit = weeklySum;
+      } else if (isMonthly) {
+        const monthlyTxs = approvedDeposits.filter(tx => tx.date >= monthAgo);
+        const monthlySum = monthlyTxs.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+        if (monthlySum > 0) finalDeposit = monthlySum;
+      }
+
+      // 2. Referral: Direct referrals with active contracts
+      const directReferrals = accounts.filter(acc => {
+        if (!isMemberAccount(acc)) return false;
+        if (!acc.invitedBy) return false;
+        const inv = acc.invitedBy.toLowerCase();
+        const isSponsor = inv === u.username.toLowerCase() || (u.referralCode && inv === u.referralCode.toLowerCase());
+        if (!isSponsor) return false;
+
+        const targetState = (currentAccount && acc.username.toLowerCase() === currentAccount.username.toLowerCase()) 
+          ? state 
+          : acc.state;
+        return (targetState?.activeContracts || 0) >= 1;
+      }).length;
+
+      const activeReferralsCount = Math.max(directReferrals, activeState?.holders?.filter(h => h.contracts > 0).length || 0);
 
       // 3. Contract: Total active contracts
       const activeContracts = activeState?.activeContracts || 0;
 
       // 4. Profit: Total profit in Rp
-      const totalProfit = activeState?.totalProfit || activeState?.totalEarned || 0;
+      const allTimeProfit = Math.max(activeState?.totalProfit || 0, activeState?.totalEarned || 0);
+      let finalProfit = allTimeProfit;
+
+      if (isWeekly) {
+        const weeklyRewardTxs = (activeState?.transactions || []).filter(tx => 
+          (tx.type === 'reward' || tx.type === 'referral' || tx.type === 'rebate' || tx.type === 'welcome_bonus' || tx.type === 'bonus') && 
+          tx.date >= weekAgo
+        );
+        const weeklyProfitSum = weeklyRewardTxs.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+        if (weeklyProfitSum > 0) finalProfit = weeklyProfitSum;
+      } else if (isMonthly) {
+        const monthlyRewardTxs = (activeState?.transactions || []).filter(tx => 
+          (tx.type === 'reward' || tx.type === 'referral' || tx.type === 'rebate' || tx.type === 'welcome_bonus' || tx.type === 'bonus') && 
+          tx.date >= monthAgo
+        );
+        const monthlyProfitSum = monthlyRewardTxs.reduce((sum, tx) => sum + (tx.amount || 0), 0);
+        if (monthlyProfitSum > 0) finalProfit = monthlyProfitSum;
+      }
 
       let score = 0;
       let displayStr = '';
 
       if (leaderboardCategory === 'investor') { // State 'investor' represents Deposit
-        const val = totalApprovedDepositsAmount * periodFactor;
-        score = val;
-        displayStr = `Rp ${Math.round(val).toLocaleString('id-ID')}`;
+        score = finalDeposit;
+        displayStr = `Rp ${Math.round(finalDeposit).toLocaleString('id-ID')}`;
       } else if (leaderboardCategory === 'referral') {
-        const val = Math.max(0, Math.round(activeReferralsCount * periodFactor));
-        score = val;
-        displayStr = `${val} ${language === 'id' ? 'Mitra' : 'Partners'}`;
+        score = activeReferralsCount;
+        displayStr = `${activeReferralsCount} ${language === 'id' ? 'Mitra' : 'Partners'}`;
       } else if (leaderboardCategory === 'contract') {
-        const val = Math.max(0, Math.round(activeContracts * periodFactor));
-        score = val;
-        displayStr = `${val} Unit`;
+        score = activeContracts;
+        displayStr = `${activeContracts} Unit`;
       } else { // 'profit'
-        const val = totalProfit * periodFactor;
-        score = val;
-        displayStr = `Rp ${Math.round(val).toLocaleString('id-ID')}`;
+        score = finalProfit;
+        displayStr = `Rp ${Math.round(finalProfit).toLocaleString('id-ID')}`;
       }
 
       const vipLevel = activeContracts >= 50 ? 5 :
@@ -280,7 +329,7 @@ export default function Leaderboard({
         displayStr,
         activeContracts,
         activeReferralsCount,
-        totalProfit
+        totalProfit: allTimeProfit
       };
     });
 

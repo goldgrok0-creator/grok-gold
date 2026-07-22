@@ -28,7 +28,7 @@ import {
   Gift,
   LogOut
 } from 'lucide-react';
-import { UserAccount, Transaction, AppState } from '../types';
+import { UserAccount, Transaction, AppState, isMemberAccount } from '../types';
 import {
   approveDepositInSupabase,
   rejectDepositInSupabase,
@@ -128,13 +128,14 @@ export default function AdminLayout({
 
   // --- STATS COMPUTATION ---
   const stats = useMemo(() => {
-    const totalUsers = accounts.length - 1; // Exclude admin
+    const memberAccounts = accounts.filter(isMemberAccount);
+    const totalUsers = memberAccounts.length;
     let totalBalances = 0;
     let totalContracts = 0;
     let allTransactions: { tx: Transaction; username: string }[] = [];
 
     accounts.forEach(acc => {
-      if (acc.username.toLowerCase() !== 'admin') {
+      if (isMemberAccount(acc)) {
         totalBalances += acc.state?.mainBalance || 0;
         totalContracts += acc.state?.activeContracts || 0;
       }
@@ -176,7 +177,7 @@ export default function AdminLayout({
   // --- FILTERED USERS ---
   const filteredUsers = useMemo(() => {
     return accounts
-      .filter(acc => acc.username.toLowerCase() !== 'admin')
+      .filter(isMemberAccount)
       .filter(acc => {
         const query = searchQuery.toLowerCase();
         return (

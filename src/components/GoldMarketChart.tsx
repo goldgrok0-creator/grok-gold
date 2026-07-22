@@ -280,8 +280,9 @@ export default function GoldMarketChart({ language }: GoldMarketChartProps) {
     loadActivities();
 
     // Listen to real-time changes using Supabase Realtime Channels
+    const channelName = `global-live-activities_${Math.random().toString(36).substring(2, 9)}`;
     const channel = supabase
-      .channel('global-live-activities')
+      .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => {
         loadActivities();
       })

@@ -6,10 +6,15 @@ import {
 import { useAppState } from '../AppContext';
 import { useContract } from '../hooks/useContract';
 import { CONFIG } from '../types';
+import { calculateCappingEarnings } from '../utils/capping';
 import { TRANSLATIONS } from '../translations';
 import HomeSkeleton from '../components/HomeSkeleton';
 
-const Home: React.FC = () => {
+interface HomeProps {
+  setHarvestModalOpen?: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+const Home: React.FC<HomeProps> = ({ setHarvestModalOpen }) => {
   const {
     state,
     language,
@@ -23,16 +28,17 @@ const Home: React.FC = () => {
   const { claimDailyReward } = useContract();
   const t = TRANSLATIONS[language];
 
-  const totalPortfolioValue = state.activeContracts * CONFIG.PRICE_PER_UNIT;
-  const maxPossibleEarnings = totalPortfolioValue * CONFIG.CAPPING_PERCENT;
-  const totalEarned = state.totalEarned;
-  const dailyYield = totalPortfolioValue * CONFIG.DAILY_REWARD_PERCENT;
-  
-  const cappingRatio = maxPossibleEarnings > 0 
-    ? Math.min(100, (totalEarned / maxPossibleEarnings) * 100) 
-    : 0;
+  const cappingMetrics = calculateCappingEarnings(state);
+  const {
+    totalModalAktif: totalPortfolioValue,
+    maxPossibleEarnings,
+    cappingEarnings,
+    remainingCapping,
+    cappingRatio,
+    isCapped: isCappedLimitMet
+  } = cappingMetrics;
 
-  const isCappedLimitMet = totalEarned >= maxPossibleEarnings && maxPossibleEarnings > 0;
+  const dailyYield = totalPortfolioValue * CONFIG.DAILY_REWARD_PERCENT;
 
   if (isSyncing) {
     return <HomeSkeleton />;
@@ -332,8 +338,8 @@ const Home: React.FC = () => {
 
           <div className="flex-1 space-y-2.5 text-xs font-semibold text-left">
             <div className="flex justify-between border-b border-white/5 pb-1">
-              <span className="text-slate-400 text-[10px]">{t.earned}</span>
-              <span className="text-white font-bold">Rp {totalEarned.toLocaleString('id-ID')}</span>
+              <span className="text-slate-400 text-[10px]">{language === 'id' ? 'Penghasilan Capping' : 'Capping Earnings'}</span>
+              <span className="text-white font-bold">Rp {cappingEarnings.toLocaleString('id-ID')}</span>
             </div>
             <div className="flex justify-between border-b border-white/5 pb-1">
               <span className="text-slate-400 text-[10px]">{t.maxEarnings}</span>
@@ -342,7 +348,7 @@ const Home: React.FC = () => {
             <div className="flex justify-between">
               <span className="text-slate-400 text-[10px]">{t.remaining}</span>
               <span className="text-amber-500 font-bold">
-                Rp {Math.max(0, maxPossibleEarnings - totalEarned).toLocaleString('id-ID')}
+                Rp {remainingCapping.toLocaleString('id-ID')}
               </span>
             </div>
           </div>
@@ -351,7 +357,7 @@ const Home: React.FC = () => {
         {/* Progress Bar Footer */}
         <div className="mt-5 pt-4 border-t border-white/5">
           <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold mb-2">
-            <span>Rp {totalEarned.toLocaleString('id-ID')}</span>
+            <span>Rp {cappingEarnings.toLocaleString('id-ID')}</span>
             <span>Rp {maxPossibleEarnings.toLocaleString('id-ID')}</span>
           </div>
           <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden mb-4">
@@ -363,7 +369,13 @@ const Home: React.FC = () => {
 
           {/* Yield Claim Action */}
           <button
-            onClick={claimDailyReward}
+            onClick={() => {
+              if (setHarvestModalOpen) {
+                setHarvestModalOpen(true);
+              } else {
+                claimDailyReward();
+              }
+            }}
             disabled={claimCooldownText !== '' || state.activeContracts === 0 || isCappedLimitMet}
             className={`w-full py-3 rounded-xl text-xs font-black uppercase transition flex items-center justify-center gap-2 mt-4 cursor-pointer ${
               claimCooldownText !== ''

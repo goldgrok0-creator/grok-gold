@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { AppState, Transaction, Holder, CONFIG, UserAccount, SystemError } from './types';
+import { calculateCappingEarnings } from './utils/capping';
 import { supabase, fetchAccountsFromSupabase, saveAccountToSupabase, fetchGlobalConfig, updateGlobalConfig } from './supabase';
 
 const INITIAL_HOLDERS: Holder[] = [];
@@ -212,7 +213,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     lastClaimTime: 0,
     welcomeBonusClaimed: false,
     isLoggedIn: false,
-    username: 'ADMIN',
+    username: '',
     holders: INITIAL_HOLDERS,
     goldProduction: 0,
     cyclePercent: 0,
@@ -398,8 +399,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     };
 
+    const channelName = `app_context_schema_db_changes_${Math.random().toString(36).substring(2, 9)}`;
     const dbChannel = supabase
-      .channel('schema-db-changes')
+      .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, handlePayload)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deposits' }, handlePayload)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawals' }, handlePayload)
@@ -522,7 +524,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const timer = setInterval(() => {
       const totalPortfolio = state.activeContracts * CONFIG.PRICE_PER_UNIT;
       const maxAllowed = totalPortfolio * CONFIG.CAPPING_PERCENT;
-      const isCapped = state.totalEarned >= maxAllowed;
+      const isCapped = calculateCappingEarnings(state).isCapped;
       const activeBoostMult = boostTimeLeft > 0 ? 1.5 : 1.0;
 
       if (state.activeContracts > 0 && !isCapped) {
@@ -552,48 +554,6 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             nextMonthly += addedGold;
           }
 
-          const dailyYieldSec = (prev.activeContracts * CONFIG.PRICE_PER_UNIT * CONFIG.DAILY_REWARD_PERCENT) / 86400;
-          const increment = dailyYieldSec * simSpeed * activeBoostMult;
-
-          const currentTotalPortfolio = prev.activeContracts * CONFIG.PRICE_PER_UNIT;
-          const currentMaxAllowed = currentTotalPortfolio * CONFIG.CAPPING_PERCENT;
-          const currentEarnedTotal = prev.totalEarned + prev.pendingMiningReward;
-
-          let addedReward = increment;
-          if (currentEarnedTotal + increment > currentMaxAllowed) {
-            addedReward = Math.max(0, currentMaxAllowed - currentEarnedTotal);
-          }
-
-          const nextPending = prev.pendingMiningReward + addedReward;
-
-          if (currentAccount?.settings?.autoReinvest && nextPending >= CONFIG.PRICE_PER_UNIT) {
-            const unitsToBuy = Math.floor(nextPending / CONFIG.PRICE_PER_UNIT);
-            const cost = unitsToBuy * CONFIG.PRICE_PER_UNIT;
-            
-            const autoTx: Transaction = {
-              id: 'AUTO-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
-              type: 'reward',
-              amount: cost,
-              date: Date.now(),
-              description: language === 'id'
-                ? `Auto-Reinvest: Beli ${unitsToBuy} Unit`
-                : `Auto-Reinvest: Purchased ${unitsToBuy} Units`,
-            };
-
-            return {
-              ...prev,
-              cyclePercent: nextCycle,
-              goldProduction: prev.goldProduction + addedGold,
-              goldProductionDaily: nextDaily,
-              goldProductionWeekly: nextWeekly,
-              goldProductionMonthly: nextMonthly,
-              lastGoldUpdateTime: now,
-              pendingMiningReward: nextPending - cost,
-              activeContracts: prev.activeContracts + unitsToBuy,
-              transactions: [autoTx, ...prev.transactions],
-            };
-          }
-
           return {
             ...prev,
             cyclePercent: nextCycle,
@@ -602,7 +562,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             goldProductionWeekly: nextWeekly,
             goldProductionMonthly: nextMonthly,
             lastGoldUpdateTime: now,
-            pendingMiningReward: nextPending,
+            pendingMiningReward: 0,
           };
         });
       }

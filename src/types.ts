@@ -36,6 +36,7 @@ export interface UserAccount {
   username: string;
   email: string;
   phone: string;
+  role?: 'admin' | 'user' | string;
   country?: string;
   password: string;
   referralCode: string; // User's personal invite code
@@ -57,9 +58,16 @@ export interface UserAccount {
     dailyTaskVisit?: boolean;
     dailyTaskClaimed?: boolean;
     dailyTaskCheck?: boolean;
-    claimStreak?: number;
-    claimStreakHistory?: Array<{ id: string; date: number; amount: number; streak: number; status: string; balanceBefore: number; balanceAfter: number }>;
+    telegramId?: string;
+    telegramUsername?: string;
   };
+}
+
+export function isMemberAccount(acc: UserAccount | null | undefined): boolean {
+  if (!acc) return false;
+  if (acc.role === 'admin') return false;
+  if (acc.username && acc.username.toLowerCase() === 'admin') return false;
+  return true;
 }
 
 export interface AppState {

@@ -6,6 +6,7 @@ import {
 import { useAppState } from '../AppContext';
 import { useContract } from '../hooks/useContract';
 import { CONFIG } from '../types';
+import { calculateCappingEarnings } from '../utils/capping';
 import { TRANSLATIONS } from '../translations';
 
 const GoldMarketChart = lazy(() => import('../components/GoldMarketChart'));
@@ -37,20 +38,21 @@ const LiveMiningPage: React.FC<LiveMiningPageProps> = ({
     isLoading: isContractLoading
   } = useContract();
 
-  const totalEarned = state.totalEarned;
-  const totalPortfolioValue = state.activeContracts * CONFIG.PRICE_PER_UNIT;
-  const maxPossibleEarnings = totalPortfolioValue * CONFIG.CAPPING_PERCENT;
+  const cappingMetrics = calculateCappingEarnings(state);
+  const {
+    totalModalAktif: totalPortfolioValue,
+    maxPossibleEarnings,
+    cappingEarnings,
+    remainingCapping,
+    cappingRatio,
+    cappingPercentStr,
+    isCapped: cappingIsCapped
+  } = cappingMetrics;
+
+  const dailyYield = totalPortfolioValue * CONFIG.DAILY_REWARD_PERCENT;
   const resolvedIsCappedLimitMet = isCappedLimitMet !== undefined 
     ? isCappedLimitMet 
-    : (totalEarned >= maxPossibleEarnings && maxPossibleEarnings > 0);
-
-  const handleHarvestClick = () => {
-    if (setHarvestModalOpen) {
-      setHarvestModalOpen(true);
-    } else {
-      claimDailyReward();
-    }
-  };
+    : cappingIsCapped;
 
   const t = TRANSLATIONS[language];
 
@@ -221,37 +223,8 @@ const LiveMiningPage: React.FC<LiveMiningPageProps> = ({
           />
         </div>
 
-        {/* READY TO HARVEST (PENDING YIELD) WIDGET */}
-        <div 
-          onClick={handleHarvestClick}
-          className="bg-[#120a26] border border-emerald-500/20 hover:border-emerald-500/40 rounded-2xl p-4 mb-4 flex items-center justify-between gap-3 relative overflow-hidden cursor-pointer group transition-all duration-300 shadow-md shadow-emerald-500/5 hover:shadow-emerald-500/10"
-        >
-          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none group-hover:bg-emerald-500/10 transition-colors" />
-          <div className="flex-1 text-left relative z-10">
-            <span className="text-[9px] text-slate-400 font-extrabold block uppercase mb-1 tracking-wider font-sans">
-              {language === 'id' ? 'Hasil Tambang Siap Panen (Pending Yield)' : 'Ready to Harvest (Pending Yield)'}
-            </span>
-            <div className="text-xl font-black text-emerald-400 font-orbitron flex items-center gap-2">
-              Rp {state.pendingMiningReward.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              <span className="text-[8.5px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-black uppercase tracking-wide animate-pulse font-sans">
-                {language === 'id' ? 'KLAIM' : 'CLAIM'}
-              </span>
-            </div>
-            {state.activeContracts > 0 && !resolvedIsCappedLimitMet ? (
-              <p className="text-[9px] text-slate-400 font-bold mt-1 leading-relaxed font-sans">
-                +{((state.activeContracts * CONFIG.PRICE_PER_UNIT * CONFIG.DAILY_REWARD_PERCENT) / 86400).toLocaleString('id-ID', { minimumFractionDigits: 4 })} Rp/s dipindahkan ke mining system aktif
-              </p>
-            ) : (
-              <p className="text-[9px] text-slate-500 font-semibold mt-1 leading-relaxed font-sans">
-                {language === 'id' ? 'Sistem mining nonaktif (Miliki kontrak aktif untuk memicu)' : 'Mining system inactive (Own active contracts to trigger)'}
-              </p>
-            )}
-          </div>
-          
-          <div className="relative z-10 w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0 group-hover:scale-105 group-hover:bg-emerald-500/20 transition-all duration-300">
-            <Coins className="w-5 h-5 animate-bounce" style={{ animationDuration: '2s' }} />
-          </div>
-        </div>
+
+
 
         {/* EXC-700 CLOUD EXCAVATOR BOOSTER PANEL */}
         <div className="bg-black/25 border border-purple-950/40 rounded-2xl p-4 mb-4 flex items-center justify-between gap-3.5 relative overflow-hidden">

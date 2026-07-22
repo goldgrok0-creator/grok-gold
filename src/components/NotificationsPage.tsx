@@ -67,8 +67,8 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
         </div>
 
         <div className="space-y-3.5 max-h-[400px] overflow-y-auto pr-1">
-          {bulletins.map((n) => (
-            <div key={n.id} className="p-4 bg-black/45 border border-white/5 rounded-2xl flex gap-3 text-left">
+          {bulletins.map((n, idx) => (
+            <div key={`${n.id}-${idx}`} className="p-4 bg-black/45 border border-white/5 rounded-2xl flex gap-3 text-left">
               <div className="mt-0.5 shrink-0">
                 <div className={`p-1.5 rounded-lg border ${
                   n.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :

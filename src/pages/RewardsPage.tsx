@@ -16,7 +16,7 @@ import {
   Gift
 } from 'lucide-react';
 import { useAppState } from '../AppContext';
-import { CONFIG } from '../types';
+import { CONFIG, isMemberAccount } from '../types';
 
 const RewardsPage: React.FC = () => {
   const {
@@ -96,6 +96,7 @@ const RewardsPage: React.FC = () => {
   const directList = useMemo(() => {
     return accounts.filter(
       acc =>
+        isMemberAccount(acc) &&
         acc.invitedBy &&
         currentAccount &&
         acc.invitedBy.toLowerCase() === currentAccount.username.toLowerCase()
@@ -106,7 +107,7 @@ const RewardsPage: React.FC = () => {
 
   const l2List = useMemo(() => {
     return accounts.filter(
-      acc => acc.invitedBy && level1Usernames.includes(acc.invitedBy.toLowerCase())
+      acc => isMemberAccount(acc) && acc.invitedBy && level1Usernames.includes(acc.invitedBy.toLowerCase())
     );
   }, [accounts, level1Usernames]);
 
@@ -114,7 +115,7 @@ const RewardsPage: React.FC = () => {
 
   const l3List = useMemo(() => {
     return accounts.filter(
-      acc => acc.invitedBy && level2Usernames.includes(acc.invitedBy.toLowerCase())
+      acc => isMemberAccount(acc) && acc.invitedBy && level2Usernames.includes(acc.invitedBy.toLowerCase())
     );
   }, [accounts, level2Usernames]);
 
@@ -148,10 +149,10 @@ const RewardsPage: React.FC = () => {
   // Top sponsor leaderboard
   const topReferrers = useMemo(() => {
     return accounts
-      .filter(acc => acc.username.toLowerCase() !== 'admin')
+      .filter(isMemberAccount)
       .map(acc => {
         const directDownlinesCount = accounts.filter(
-          down => down.invitedBy && down.invitedBy.toLowerCase() === acc.username.toLowerCase()
+          down => isMemberAccount(down) && down.invitedBy && down.invitedBy.toLowerCase() === acc.username.toLowerCase()
         ).length;
         const refBonus = acc.state?.referralEarned || (directDownlinesCount * 18000);
         return {

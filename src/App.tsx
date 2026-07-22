@@ -74,7 +74,8 @@ import {
   Filter,
   Clock
 } from 'lucide-react';
-import { AppState, Transaction, Holder, CONFIG, UserAccount, SystemError } from './types';
+import { AppState, Transaction, Holder, CONFIG, UserAccount, SystemError, isMemberAccount } from './types';
+import { calculateCappingEarnings } from './utils/capping';
 import { TRANSLATIONS } from './translations';
 import WelcomeTicker from './components/WelcomeTicker';
 import CompanyLandingPage from './components/CompanyLandingPage';
@@ -92,11 +93,13 @@ import HelpPage from './components/HelpPage';
 import PrivacyPolicyPage from './components/PrivacyPolicyPage';
 import TermsOfServicePage from './components/TermsOfServicePage';
 import ContactInfoPage from './components/ContactInfoPage';
+import SettingsPage from './pages/Settings';
 import { SearchableCountrySelect } from './components/SearchableCountrySelect';
 import { WORLD_COUNTRIES } from './data/countries';
 import ContractPage from './components/ContractPage';
 import NetworkPage from './components/NetworkPage';
 import WalletPage from './components/WalletPage';
+import { CommunityPage } from './components/CommunityPage';
 import { HarvestModal } from './components/HarvestModal';
 import ClockIcon from './components/icons/ClockIcon';
 import AdminLayout from './components/admin/AdminLayout';
@@ -123,6 +126,7 @@ import {
   hashPassword,
   executeLuckySpinInSupabase
 } from './supabase';
+import { calculateNetworkActiveCount } from './utils/network';
 
 // Initial dummy downline holders to populate Network structures
 const INITIAL_HOLDERS: Holder[] = [];
@@ -179,6 +183,45 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [language, setLanguage] = useState<'id' | 'en'>('en');
   const [currentTab, setCurrentTab] = useState<string>('home');
+  const prevTabRef = useRef(currentTab);
+  const [slideDirection, setSlideDirection] = useState<number>(1);
+
+  useEffect(() => {
+    if (prevTabRef.current !== currentTab) {
+      const TAB_ORDER = [
+        'home',
+        'contract',
+        'livemining',
+        'wallet',
+        'profile',
+        'community',
+        'luckyspin',
+        'network',
+        'leaderboard',
+        'referral',
+        'reward',
+        'deposit',
+        'transactions',
+        'notifications',
+        'settings',
+        'help',
+        'about',
+        'privacy',
+        'terms',
+        'contact',
+        'legal',
+        'errorhistory'
+      ];
+      const prevIdx = TAB_ORDER.indexOf(prevTabRef.current);
+      const currIdx = TAB_ORDER.indexOf(currentTab);
+      if (currIdx !== -1 && prevIdx !== -1) {
+        setSlideDirection(currIdx >= prevIdx ? 1 : -1);
+      } else {
+        setSlideDirection(1);
+      }
+      prevTabRef.current = currentTab;
+    }
+  }, [currentTab]);
   const [showLanding, setShowLanding] = useState(false);
   const [hideBalance, setHideBalance] = useState(false);
   const [isSyncing, setIsSyncing] = useState(() => {
@@ -358,7 +401,7 @@ export default function App() {
     lastClaimTime: 0,
     welcomeBonusClaimed: false,
     isLoggedIn: false,
-    username: 'ADMIN',
+    username: '',
     holders: INITIAL_HOLDERS,
     goldProduction: 0,
     cyclePercent: 0,
@@ -466,25 +509,33 @@ export default function App() {
 
   // --- FETCH SECURE SERVER TIME ---
   useEffect(() => {
-    const fetchServerTime = () => {
-      fetch('/api/time')
-        .then(r => r.json())
-        .then(data => {
-          if (data && typeof data.serverTime === 'number') {
-            const offset = data.serverTime - Date.now();
-            setServerTimeOffset(offset);
-            console.log('[Time Sync] Calculated server time offset:', offset);
-          }
-        })
-        .catch(err => {
-          console.error('[Time Sync] Error fetching server time:', err);
-        });
+    let isMounted = true;
+    const fetchServerTime = async () => {
+      try {
+        const r = await fetch('/api/time', { cache: 'no-store' });
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
+        const data = await r.json();
+        if (isMounted && data && typeof data.serverTime === 'number') {
+          const offset = data.serverTime - Date.now();
+          setServerTimeOffset(offset);
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          setServerTimeOffset(0);
+          console.warn('[Time Sync] Server time endpoint unavailable, using local device time fallback:', err?.message || err);
+        }
+      }
     };
     
     fetchServerTime();
     // Refresh server time every 5 minutes to keep drift-free accuracy
     const timeInterval = setInterval(fetchServerTime, 5 * 60 * 1000);
-    return () => clearInterval(timeInterval);
+    return () => {
+      isMounted = false;
+      clearInterval(timeInterval);
+    };
   }, []);
 
   useEffect(() => {
@@ -537,8 +588,9 @@ export default function App() {
     };
 
     // Setup Realtime PostgreSQL Changes listener for the 5 relational tables
+    const channelName = `app_main_schema_db_changes_${Math.random().toString(36).substring(2, 9)}`;
     const dbChannel = supabase
-      .channel('schema-db-changes')
+      .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, handlePayload)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deposits' }, handlePayload)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawals' }, handlePayload)
@@ -797,61 +849,6 @@ export default function App() {
             nextMonthly += addedGold;
           }
 
-          // Calculate daily yield per second (4% daily rate / 86400 seconds)
-          const dailyYieldSec = (prev.activeContracts * CONFIG.PRICE_PER_UNIT * CONFIG.DAILY_REWARD_PERCENT) / 86400;
-          const increment = dailyYieldSec * simSpeed * activeBoostMult * elapsedSecs;
-
-          // Ensure we don't exceed the capping ceiling
-          const currentTotalPortfolio = prev.activeContracts * CONFIG.PRICE_PER_UNIT;
-          const currentMaxAllowed = currentTotalPortfolio * CONFIG.CAPPING_PERCENT;
-          const prevMiningProfit = (prev.transactions || [])
-            .filter(t => t.type === 'reward')
-            .reduce((sum, item) => sum + item.amount, 0);
-          const prevReferralReward = (prev.transactions || [])
-            .filter(t => t.type === 'referral')
-            .reduce((sum, item) => sum + item.amount, 0);
-          const prevRebateReward = (prev.transactions || [])
-            .filter(t => t.type === 'rebate')
-            .reduce((sum, item) => sum + item.amount, 0);
-          const prevCappingEarnings = prevMiningProfit + prevReferralReward + prevRebateReward;
-          const currentEarnedTotal = prevCappingEarnings + prev.pendingMiningReward;
-
-          let addedReward = increment;
-          if (currentEarnedTotal + increment > currentMaxAllowed) {
-            addedReward = Math.max(0, currentMaxAllowed - currentEarnedTotal);
-          }
-
-          const nextPending = prev.pendingMiningReward + addedReward;
-
-          // Auto Reinvest simulation if enabled and meets price per unit
-          if (currentAccount?.settings?.autoReinvest && nextPending >= CONFIG.PRICE_PER_UNIT) {
-            const unitsToBuy = Math.floor(nextPending / CONFIG.PRICE_PER_UNIT);
-            const cost = unitsToBuy * CONFIG.PRICE_PER_UNIT;
-            
-            const autoTx: Transaction = {
-              id: 'AUTO-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
-              type: 'reward',
-              amount: cost,
-              date: Date.now(),
-              description: language === 'id'
-                ? `Auto-Reinvest: Beli ${unitsToBuy} Unit`
-                : `Auto-Reinvest: Purchased ${unitsToBuy} Units`,
-            };
-
-            return {
-              ...prev,
-              cyclePercent: nextCycle,
-              goldProduction: prev.goldProduction + addedGold,
-              goldProductionDaily: nextDaily,
-              goldProductionWeekly: nextWeekly,
-              goldProductionMonthly: nextMonthly,
-              lastGoldUpdateTime: now,
-              pendingMiningReward: nextPending - cost,
-              activeContracts: prev.activeContracts + unitsToBuy,
-              transactions: [autoTx, ...prev.transactions],
-            };
-          }
-
           return {
             ...prev,
             cyclePercent: nextCycle,
@@ -860,7 +857,7 @@ export default function App() {
             goldProductionWeekly: nextWeekly,
             goldProductionMonthly: nextMonthly,
             lastGoldUpdateTime: now,
-            pendingMiningReward: nextPending,
+            pendingMiningReward: 0,
           };
         });
       }
@@ -937,24 +934,42 @@ export default function App() {
       }
     }
 
+    const finalReferral = Math.max(referral, state.referralEarned || 0);
+    const finalRebate = Math.max(rebate, state.rebateEarned || 0);
+
+    // Bonus Income ONLY exists after the user has met requirements and executed Claim Bonus!
+    if (state.welcomeBonusClaimed) {
+      if (bonus === 0) bonus = CONFIG.WELCOME_BONUS_AMOUNT;
+    } else {
+      bonus = 0; // Referral registrations do NOT automatically generate Bonus Income
+    }
+
+    const recordedProfit = Math.max(state.totalEarned || 0, state.totalProfit || 0);
+    const nonMiningTotal = finalReferral + finalRebate + bonus;
+    const calculatedMining = Math.max(mining, Math.max(0, recordedProfit - nonMiningTotal));
+
     return {
-      miningProfit: mining,
-      referralReward: referral,
-      rebateReward: rebate,
+      miningProfit: calculatedMining,
+      referralReward: finalReferral,
+      rebateReward: finalRebate,
       bonusReward: bonus,
-      totalEarned: mining + referral + rebate + bonus,
+      totalEarned: calculatedMining + finalReferral + finalRebate + bonus,
       totalWithdraw: withdraw,
       totalDeposit: deposit,
     };
-  }, [state.transactions]);
+  }, [state.transactions, state.welcomeBonusClaimed, state.referralEarned, state.rebateEarned, state.totalEarned, state.totalProfit]);
 
-  const totalPortfolioValue = state.activeContracts * CONFIG.PRICE_PER_UNIT;
-  const maxPossibleEarnings = totalPortfolioValue * CONFIG.CAPPING_PERCENT;
-  const cappingEarnings = miningProfit + referralReward + rebateReward;
-  const cappingRatio = maxPossibleEarnings > 0 ? Math.min((cappingEarnings / maxPossibleEarnings) * 100, 100) : 0;
-  const cappingRatioVisual = cappingEarnings > 0 ? Math.max(0.1, cappingRatio) : 0;
-  const cappingPercentStr = cappingEarnings > 0 && cappingRatio < 0.01 ? "0.01" : cappingRatio.toFixed(2);
-  const isCappedLimitMet = cappingEarnings >= maxPossibleEarnings && maxPossibleEarnings > 0;
+  const cappingMetrics = calculateCappingEarnings(state);
+  const {
+    totalModalAktif: totalPortfolioValue,
+    maxPossibleEarnings,
+    cappingEarnings,
+    cappingRatio,
+    cappingRatioVisual,
+    cappingPercentStr,
+    isCapped: isCappedLimitMet
+  } = cappingMetrics;
+
   const dailyYield = totalPortfolioValue * CONFIG.DAILY_REWARD_PERCENT;
 
   // Booster Cooldown Helpers (24 hours cooldown)
@@ -993,17 +1008,18 @@ export default function App() {
   } = React.useMemo(() => {
     const direct = accounts.filter(
       acc =>
+        isMemberAccount(acc) &&
         acc.invitedBy &&
         currentAccount &&
         acc.invitedBy.toLowerCase() === currentAccount.username.toLowerCase()
     );
     const l1Usernames = direct.map(acc => acc.username.toLowerCase());
     const l2 = accounts.filter(
-      acc => acc.invitedBy && l1Usernames.includes(acc.invitedBy.toLowerCase())
+      acc => isMemberAccount(acc) && acc.invitedBy && l1Usernames.includes(acc.invitedBy.toLowerCase())
     );
     const l2Usernames = l2.map(acc => acc.username.toLowerCase());
     const l3 = accounts.filter(
-      acc => acc.invitedBy && l2Usernames.includes(acc.invitedBy.toLowerCase())
+      acc => isMemberAccount(acc) && acc.invitedBy && l2Usernames.includes(acc.invitedBy.toLowerCase())
     );
 
     const l1C = direct.length;
@@ -1033,28 +1049,10 @@ export default function App() {
 
     const teamVolumeValue = totalDownlineContracts * CONFIG.PRICE_PER_UNIT;
 
-    const activeHolders = direct.filter(acc => {
-      // 1. Mendaftar Menggunakan Kode Referral (Guaranteed because we filter direct which has invitedBy equal to currentAccount.username)
-      
-      // 2. Akun Berstatus Aktif (Tidak diblokir/dinonaktifkan/akun palsu)
-      const isBlocked = 
-        (acc as any).isBanned || 
-        (acc as any).blocked || 
-        (acc as any).status === 'blocked' || 
-        (acc.state as any)?.isBanned || 
-        (acc.state as any)?.status === 'blocked' ||
-        (acc.state?.systemErrors || []).some(err => err.errorCode === 'BLOCKED' || err.errorCode === 'BANNED');
-      if (isBlocked) return false;
-
-      // 3. Memiliki Kepemilikan Kontrak atau Deposit Minimum
-      const hasContract = (acc.state?.activeContracts || 0) >= CONFIG.MIN_CONTRACT_PER_HOLDER;
-      const hasMinDeposit = (acc.state?.transactions || []).some(
-        t => t.type === 'deposit' && t.amount >= CONFIG.MIN_DEPOSIT
-      );
-
-      return hasContract || hasMinDeposit;
-    });
-    const networkActiveCount = activeHolders.length;
+    const { count: networkActiveCount, activeHolders } = calculateNetworkActiveCount(
+      currentAccount?.username,
+      accounts
+    );
 
     const bonusProgressRatio = Math.min(
       (networkActiveCount / CONFIG.REQUIRED_HOLDERS) * 100,
@@ -1090,13 +1088,14 @@ export default function App() {
   // --- LEADERBOARD CALCULATION ---
   const leaderboardData = React.useMemo(() => {
     // Only display real registered users (exclude 'admin' from the leaderboard)
-    const filteredAccounts = accounts.filter(u => u.username.toLowerCase() !== 'admin');
+    const filteredAccounts = accounts.filter(isMemberAccount);
     const mapped = filteredAccounts.map(u => {
       const isSelf = currentAccount && u.username.toLowerCase() === currentAccount.username.toLowerCase();
       const activeState = isSelf ? state : u.state;
 
       const l1 = accounts.filter(
         acc =>
+          isMemberAccount(acc) &&
           acc.invitedBy &&
           acc.invitedBy.toLowerCase() === u.username.toLowerCase()
       );
@@ -1104,12 +1103,14 @@ export default function App() {
 
       const l2 = accounts.filter(
         acc =>
+          isMemberAccount(acc) &&
           acc.invitedBy && l1Usernames.includes(acc.invitedBy.toLowerCase())
       );
       const l2Usernames = l2.map(acc => acc.username.toLowerCase());
 
       const l3 = accounts.filter(
         acc =>
+          isMemberAccount(acc) &&
           acc.invitedBy && l2Usernames.includes(acc.invitedBy.toLowerCase())
       );
 
@@ -2695,19 +2696,7 @@ export default function App() {
     const commission = totalPurchase * picked.pct;
 
     // Check capping
-    const maxAllowed = state.activeContracts * CONFIG.PRICE_PER_UNIT * CONFIG.CAPPING_PERCENT;
-    const prevMiningProfit = (state.transactions || [])
-      .filter(t => t.type === 'reward')
-      .reduce((sum, item) => sum + item.amount, 0);
-    const prevReferralReward = (state.transactions || [])
-      .filter(t => t.type === 'referral')
-      .reduce((sum, item) => sum + item.amount, 0);
-    const prevRebateReward = (state.transactions || [])
-      .filter(t => t.type === 'rebate')
-      .reduce((sum, item) => sum + item.amount, 0);
-    const currentCappingEarnings = prevMiningProfit + prevReferralReward + prevRebateReward;
-
-    const remainingCapping = Math.max(0, maxAllowed - currentCappingEarnings);
+    const { maxPossibleEarnings: maxAllowed, remainingCapping } = calculateCappingEarnings(state);
 
     if (maxAllowed > 0 && remainingCapping <= 0) {
       triggerModal(
@@ -4099,9 +4088,18 @@ export default function App() {
             </div>
 
             {/* 4. MAIN VIEWS SWITCH */}
-            <div className={`flex-1 px-4 py-3 space-y-4 ${
+            <div className={`flex-1 px-4 py-3 overflow-x-hidden ${
               currentTab === 'transactions' ? 'overflow-hidden flex flex-col pb-[76px]' : ''
             }`}>
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={currentTab}
+                  initial={{ opacity: 0, x: slideDirection * 28 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: slideDirection * -28 }}
+                  transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
+                  className="w-full space-y-4"
+                >
 
               {/* HOME VIEW */}
               {currentTab === 'home' && (
@@ -4525,213 +4523,7 @@ export default function App() {
               )}
 
               {/* 👥 COMMUNITY VIEW */}
-              {currentTab === 'community' && (
-                <div className="space-y-4">
-                  {/* Header */}
-                  <div className="flex items-center gap-2 border-b border-purple-500/15 pb-3">
-                    <ChevronLeft className="w-5 h-5 text-slate-400 cursor-pointer hover:text-white transition" onClick={() => setCurrentTab('home')} />
-                    <h2 className="text-xs font-black tracking-widest text-white uppercase bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent font-orbitron">
-                      {language === 'id' ? 'KOMUNITAS RESMI' : 'OFFICIAL COMMUNITY'}
-                    </h2>
-                  </div>
-
-                  {/* Member Stats */}
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="bg-black/40 border border-white/5 rounded-2xl p-2.5 text-center">
-                      <span className="text-[8px] text-slate-400 font-bold block mb-0.5 uppercase">{language === 'id' ? 'Anggota' : 'Members'}</span>
-                      <span className="text-xs font-black text-emerald-400 font-mono">124.8K</span>
-                    </div>
-                    <div className="bg-black/40 border border-white/5 rounded-2xl p-2.5 text-center">
-                      <span className="text-[8px] text-slate-400 font-bold block mb-0.5 uppercase">{language === 'id' ? 'Aktif' : 'Active'}</span>
-                      <span className="text-xs font-black text-cyan-400 font-mono">42.9K</span>
-                    </div>
-                    <div className="bg-black/40 border border-white/5 rounded-2xl p-2.5 text-center">
-                      <span className="text-[8px] text-slate-400 font-bold block mb-0.5 uppercase">Hashrate</span>
-                      <span className="text-xs font-black text-yellow-500 font-mono">4.82 EH/s</span>
-                    </div>
-                  </div>
-
-                  {/* Social Groups Grid */}
-                  <div className="bg-[#0b0519] border border-emerald-500/15 rounded-3xl p-4 shadow-xl space-y-3">
-                    <div className="text-[10px] font-black text-slate-300 uppercase tracking-wider mb-2">
-                      {language === 'id' ? 'Gabung Komunitas Kami' : 'Join Our Communities'}
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-2">
-                      <button
-                        onClick={() => {
-                          setSharedReferral(true);
-                          triggerModal(language === 'id' ? '🎉 Berhasil terhubung ke WhatsApp VIP Lounge!' : '🎉 Connected to WhatsApp VIP Lounge!', 'success');
-                        }}
-                        className="w-full p-3 rounded-2xl bg-[#091f14] border border-emerald-500/20 hover:border-emerald-400/40 transition flex items-center justify-between text-left cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-                            <MessageCircle className="w-4 h-4 text-emerald-400" />
-                          </div>
-                          <div>
-                            <div className="text-xs font-black text-white leading-none">WhatsApp VVIP Lounge</div>
-                            <span className="text-[8px] text-slate-400 font-bold uppercase mt-1 block">{language === 'id' ? 'Khusus Deposit Premium' : 'Premium Depositors Only'}</span>
-                          </div>
-                        </div>
-                        <span className="text-xs text-emerald-400 font-black group-hover:translate-x-1 transition-transform">JOIN ➔</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setSharedReferral(true);
-                          triggerModal(language === 'id' ? '🎉 Berhasil terhubung ke Telegram GrockGold Official!' : '🎉 Connected to Telegram GrockGold Official!', 'success');
-                        }}
-                        className="w-full p-3 rounded-2xl bg-[#0a1829] border border-blue-500/20 hover:border-blue-400/40 transition flex items-center justify-between text-left cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                            <Send className="w-4 h-4 text-blue-400" />
-                          </div>
-                          <div>
-                            <div className="text-xs font-black text-white leading-none">Telegram GrockGold Indo</div>
-                            <span className="text-[8px] text-slate-400 font-bold uppercase mt-1 block">48,203 Active Subscribers</span>
-                          </div>
-                        </div>
-                        <span className="text-xs text-blue-400 font-black group-hover:translate-x-1 transition-transform">JOIN ➔</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setSharedReferral(true);
-                          triggerModal(language === 'id' ? '🎉 Berhasil terhubung ke Discord Server Hub!' : '🎉 Connected to Discord Server Hub!', 'success');
-                        }}
-                        className="w-full p-3 rounded-2xl bg-[#110e24] border border-indigo-500/20 hover:border-indigo-400/40 transition flex items-center justify-between text-left cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
-                            <MessageSquare className="w-4 h-4 text-indigo-400" />
-                          </div>
-                          <div>
-                            <div className="text-xs font-black text-white leading-none">Discord Global Server</div>
-                            <span className="text-[8px] text-slate-400 font-bold uppercase mt-1 block">12,410 Online Hashing Leaders</span>
-                          </div>
-                        </div>
-                        <span className="text-xs text-indigo-400 font-black group-hover:translate-x-1 transition-transform">JOIN ➔</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Announcement Official Feed */}
-                  <div className="bg-[#0b0519] border border-white/5 rounded-3xl p-4 shadow-xl space-y-3">
-                    <div className="text-[10px] font-black text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping" />
-                      {language === 'id' ? 'PENGUMUMAN RESMI' : 'OFFICIAL ANNOUNCEMENTS'}
-                    </div>
-
-                    <div className="space-y-2.5">
-                      <div className="bg-white/[0.01] border border-white/5 rounded-2xl p-3">
-                        <div className="text-[10px] font-black text-amber-400 mb-0.5">✨ GROCKGOLD PARTNERS WITH WEST AFRICA MINING EXPO</div>
-                        <p className="text-[9.5px] text-slate-400 font-semibold leading-relaxed">
-                          {language === 'id' 
-                            ? 'Mulai Juli 2026, GrockGold resmi mensponsori Expo Tambang Barat untuk ekspansi unit ekskavasi EXC-900.' 
-                            : 'Starting July 2026, GrockGold sponsors the West Africa Mining Expo to expand cloud-based mining operations.'}
-                        </p>
-                        <span className="text-[8px] text-slate-500 block mt-2 font-mono">2026-07-15 10:24</span>
-                      </div>
-                      <div className="bg-white/[0.01] border border-white/5 rounded-2xl p-3">
-                        <div className="text-[10px] font-black text-cyan-400 mb-0.5">⚡ SERVER CLUSTER EXC-900 LAUNCHED</div>
-                        <p className="text-[9.5px] text-slate-400 font-semibold leading-relaxed">
-                          {language === 'id' 
-                            ? 'Meningkatkan hashrate rata-rata global sebesar +25%. Proses sinkronisasi klaim saldo harian sekarang berjalan 2x lebih cepat.' 
-                            : 'Increases global hashing bandwidth by +25%. Daily balance claim calculations are now twice as fast.'}
-                        </p>
-                        <span className="text-[8px] text-slate-500 block mt-2 font-mono">2026-07-14 18:40</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Chatroom Live Discussion */}
-                  <div className="bg-[#0b0519] border border-purple-500/10 rounded-3xl p-4 shadow-xl space-y-3 flex flex-col h-[320px]">
-                    <div className="text-[10px] font-black text-slate-300 uppercase tracking-wider mb-1 flex justify-between items-center">
-                      <span>💬 {language === 'id' ? 'Obrolan Komunitas (Live)' : 'Community Chat (Live)'}</span>
-                      <span className="text-[8px] text-emerald-400 animate-pulse">● 4,921 ONLINE</span>
-                    </div>
-
-                    {/* Chat Messages Scrolling viewport */}
-                    <div className="flex-1 overflow-y-auto space-y-2.5 pr-1.5 scrollbar-thin">
-                      {communityMessages.map((msg) => (
-                        <div key={msg.id} className={`flex items-start gap-2.5 ${msg.isSelf ? 'flex-row-reverse' : ''}`}>
-                          <div className={`w-7.5 h-7.5 rounded-full flex items-center justify-center text-[10px] font-black border ${msg.isSelf ? 'bg-gradient-to-r from-yellow-300 to-gold-primary border-yellow-400 text-black' : 'bg-purple-900/45 text-purple-200 border-purple-800/30'}`}>
-                            {msg.initials}
-                          </div>
-                          <div className={`flex flex-col max-w-[70%] ${msg.isSelf ? 'items-end' : 'items-start'}`}>
-                            <span className="text-[8px] font-black text-slate-400 mb-0.5 flex items-center gap-1">
-                              @{msg.user}
-                              {msg.user === 'admin' && <span className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-1 rounded text-[7px]">STAFF</span>}
-                            </span>
-                            <div className={`p-2.5 rounded-2xl text-[10px] font-semibold leading-normal ${msg.isSelf ? 'bg-purple-800/20 text-yellow-300 border border-purple-500/20 rounded-tr-none' : 'bg-white/[0.02] text-slate-200 border border-white/5 rounded-tl-none'}`}>
-                              {msg.text}
-                            </div>
-                            <span className="text-[7.5px] text-slate-500 mt-1 font-mono">{msg.time}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Chat Input Field Form */}
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!chatInput.trim()) return;
-                        const now = new Date();
-                        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-                        const newMsg = {
-                          id: Date.now().toString(),
-                          user: state.username.toLowerCase(),
-                          text: chatInput,
-                          time: timeStr,
-                          initials: state.username.slice(0, 2).toUpperCase(),
-                          isSelf: true
-                        };
-                        setCommunityMessages(prev => [...prev, newMsg]);
-                        setChatInput('');
-                        
-                        // Fake Auto Response from random user or staff in 2 seconds
-                        setTimeout(() => {
-                          const botNames = ['andi_wijaya', 'sari_grock', 'm_ikbal', 'admin'];
-                          const botInitials = ['AW', 'SG', 'MI', 'AD'];
-                          const botResponses = [
-                            'Mantap gan! Hashing hashrate saya hari ini tembus 12% profit harian.',
-                            'Ada yang tahu min WD hari ini berapa ya?',
-                            'Min WD cuma Rp 100.000 saja kak, prosesnya super instan langsung masuk!',
-                            'Selamat bergabung semuanya! Silakan hubungi Telegram Group untuk panduan claim welcome bonus 1.8M.'
-                          ];
-                          const idx = Math.floor(Math.random() * botResponses.length);
-                          setCommunityMessages(prev => [...prev, {
-                            id: (Date.now() + 1).toString(),
-                            user: botNames[idx],
-                            text: botResponses[idx],
-                            time: timeStr,
-                            initials: botInitials[idx],
-                            isSelf: false
-                          }]);
-                        }, 2000);
-                      }}
-                      className="flex gap-2 pt-2 border-t border-white/5"
-                    >
-                      <input
-                        type="text"
-                        value={chatInput}
-                        onChange={(e) => setChatInput(e.target.value)}
-                        placeholder={language === 'id' ? 'Ketik pesan Anda...' : 'Type message here...'}
-                        className="flex-1 bg-black/55 border border-white/5 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-purple-500/40"
-                      />
-                      <button
-                        type="submit"
-                        className="p-2.5 bg-gradient-to-r from-yellow-300 to-gold-primary text-black font-extrabold rounded-xl transition hover:brightness-110 active:scale-95 cursor-pointer"
-                      >
-                        <Send className="w-4 h-4 text-black" />
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              )}
+              {currentTab === 'community' && <CommunityPage />}
 
 
 
@@ -4924,7 +4716,7 @@ export default function App() {
                     
                     <div className="space-y-2">
                       {luckySpinHistory.map((item, idx) => (
-                        <div key={item.id} className="flex justify-between items-center p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
+                        <div key={`${item.id}-${idx}`} className="flex justify-between items-center p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
                           <div className="flex items-center gap-2">
                             <span className="text-xs">🎟️</span>
                             <span className="text-[10px] font-black text-white">{language === 'id' ? 'Putaran Berhasil' : 'Successful Spin'}</span>
@@ -5008,38 +4800,7 @@ export default function App() {
                       />
                     </div>
 
-                    {/* READY TO HARVEST (PENDING YIELD) WIDGET */}
-                    <div 
-                      onClick={() => setHarvestModalOpen(true)}
-                      className="bg-[#120a26] border border-emerald-500/20 hover:border-emerald-500/40 rounded-2xl p-4 mb-4 flex items-center justify-between gap-3 relative overflow-hidden cursor-pointer group transition-all duration-300 shadow-md shadow-emerald-500/5 hover:shadow-emerald-500/10"
-                    >
-                      <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none group-hover:bg-emerald-500/10 transition-colors" />
-                      <div className="flex-1 min-w-0 text-left relative z-10">
-                        <span className="text-[9px] text-slate-400 font-extrabold block uppercase mb-1 tracking-wider">
-                          {language === 'id' ? 'Hasil Tambang Siap Panen (Pending Yield)' : 'Ready to Harvest (Pending Yield)'}
-                        </span>
-                        <div className="text-xl font-black text-emerald-400 font-orbitron flex items-center gap-2">
-                          Rp {state.pendingMiningReward.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          <span className="text-[8.5px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-black uppercase tracking-wide animate-pulse">
-                            {language === 'id' ? 'KLAIM' : 'CLAIM'}
-                          </span>
-                        </div>
-                        {state.activeContracts > 0 && !isCappedLimitMet ? (
-                          <p className="text-[9px] text-slate-400 font-bold mt-1 leading-relaxed">
-                            +{((state.activeContracts * CONFIG.PRICE_PER_UNIT * CONFIG.DAILY_REWARD_PERCENT) / 86400).toLocaleString('id-ID', { minimumFractionDigits: 4 })} Rp/s dipindahkan ke mining system aktif
-                          </p>
-                        ) : (
-                          <p className="text-[9px] text-slate-500 font-semibold mt-1 leading-relaxed">
-                            {language === 'id' ? 'Sistem mining nonaktif (Miliki kontrak aktif untuk memicu)' : 'Mining system inactive (Own active contracts to trigger)'}
-                          </p>
-                        )}
-                      </div>
-                      
-                      {/* Harvest Hub Interactive Action Icon */}
-                      <div className="relative z-10 w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0 group-hover:scale-105 group-hover:bg-emerald-500/20 transition-all duration-300">
-                        <Coins className="w-5 h-5 animate-bounce" style={{ animationDuration: '2s' }} />
-                      </div>
-                    </div>
+
 
                     {/* EXC-700 CLOUD EXCAVATOR BOOSTER PANEL */}
                     <div className="bg-black/25 border border-purple-950/40 rounded-2xl p-4 mb-4 flex items-center justify-between gap-3.5 relative overflow-hidden">
@@ -5378,10 +5139,10 @@ export default function App() {
                     <div className="border-l-4 border-emerald-400 bg-emerald-500/5 p-3 rounded-xl flex justify-between items-center">
                       <div>
                         <span className="text-[9px] text-emerald-400 font-bold block uppercase">
-                          {language === 'id' ? `Hasil Tambang Harian (${(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}%)` : `Daily Mining Yield (${(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}%)`}
+                          {language === 'id' ? 'Total Hasil Tambang' : 'Total Mining Earned'}
                         </span>
                         <span className="text-slate-200 text-xs font-bold">
-                          {language === 'id' ? 'Distribusi Armada Tambang Harian' : 'Daily Fleet Distribution'}
+                          {language === 'id' ? 'Akumulasi Hasil Tambang' : 'Cumulative Mining Yield'}
                         </span>
                       </div>
                       <span className="text-emerald-400 font-black text-sm">Rp {miningProfit.toLocaleString('id-ID')}</span>
@@ -6344,7 +6105,7 @@ export default function App() {
                           );
                         }
 
-                        return filteredTxs.map((tx) => {
+                        return filteredTxs.map((tx, idx) => {
                           // Icon and type rendering config
                           let iconElement = <Activity className="w-4 h-4" />;
                           let badgeBgColor = 'bg-slate-500/10 border-slate-500/20 text-slate-400';
@@ -6416,7 +6177,7 @@ export default function App() {
                           }
 
                           return (
-                            <div key={tx.id} className="p-3.5 bg-black/40 border border-white/5 rounded-2xl flex flex-col gap-2.5 hover:border-white/10 transition-all text-left">
+                            <div key={`${tx.id}-${idx}`} className="p-3.5 bg-black/40 border border-white/5 rounded-2xl flex flex-col gap-2.5 hover:border-white/10 transition-all text-left">
                               {/* Row 1: Header / Category & Status */}
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
@@ -6635,9 +6396,9 @@ export default function App() {
                           );
                         }
 
-                        return filtered.map((err) => (
+                        return filtered.map((err, idx) => (
                           <div
-                            key={err.id}
+                            key={`${err.id}-${idx}`}
                             className={`p-4 bg-black/45 border rounded-2xl flex gap-3 text-left transition duration-300 relative overflow-hidden ${
                               err.resolved
                                 ? 'border-white/5'
@@ -6740,68 +6501,7 @@ export default function App() {
 
               {/* SETTINGS VIEW */}
               {currentTab === 'settings' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="space-y-4 text-left"
-                >
-                  <div className="flex items-center gap-2 border-b border-white/5 pb-3">
-                    <ChevronLeft className="w-5 h-5 text-slate-400 cursor-pointer hover:text-white transition" onClick={() => setCurrentTab('home')} />
-                    <h2 className="text-sm font-black tracking-widest text-white uppercase">
-                      {language === 'id' ? 'Pengaturan' : 'Settings'}
-                    </h2>
-                  </div>
-
-                  <div className="bg-[#0e061c] border border-white/5 rounded-3xl p-5 shadow-xl space-y-4">
-                    <div className="text-xs font-black text-gold-primary uppercase tracking-wider flex items-center gap-2 border-b border-white/5 pb-2">
-                      <Settings className="w-4 h-4 text-gold-primary" />
-                      {t.settingsTitle}
-                    </div>
-
-                    <div className="space-y-3 text-xs font-bold text-white">
-                      {/* Auto Reinvest Toggle */}
-                      <div className="flex items-center justify-between p-3 rounded-2xl bg-black/30 border border-white/5">
-                        <div className="flex flex-col text-left">
-                          <span className="text-xs">Auto Reinvest (Rp {(CONFIG.PRICE_PER_UNIT / 1000).toLocaleString('id-ID')}k)</span>
-                          <span className="text-[8px] text-slate-400 font-medium">Beli kontrak otomatis dari hasil tambang</span>
-                        </div>
-                        <button
-                          onClick={() => handleToggleAutoReinvest(!currentAccount?.settings?.autoReinvest)}
-                          className={`w-10 h-6 rounded-full p-1 transition duration-200 focus:outline-none ${
-                            currentAccount?.settings?.autoReinvest ? 'bg-gold-primary' : 'bg-slate-700'
-                          }`}
-                        >
-                          <div
-                            className={`bg-black w-4 h-4 rounded-full shadow-md transform transition duration-200 ${
-                              currentAccount?.settings?.autoReinvest ? 'translate-x-4' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-                      </div>
-
-                      {/* Notifications Toggle */}
-                      <div className="flex items-center justify-between p-3 rounded-2xl bg-black/30 border border-white/5">
-                        <div className="flex flex-col text-left">
-                          <span className="text-xs">{language === 'id' ? 'Notifikasi Real-time' : 'Real-time Notifications'}</span>
-                          <span className="text-[8px] text-slate-400 font-medium">Terima peringatan aktivitas armada</span>
-                        </div>
-                        <button
-                          onClick={() => handleToggleNotifications(!currentAccount?.settings?.notificationsEnabled)}
-                          className={`w-10 h-6 rounded-full p-1 transition duration-200 focus:outline-none ${
-                            currentAccount?.settings?.notificationsEnabled ? 'bg-gold-primary' : 'bg-slate-700'
-                          }`}
-                        >
-                          <div
-                            className={`bg-black w-4 h-4 rounded-full shadow-md transform transition duration-200 ${
-                              currentAccount?.settings?.notificationsEnabled ? 'translate-x-4' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
+                <SettingsPage />
               )}
 
               {/* HELP & SUPPORT VIEW */}
@@ -6829,6 +6529,8 @@ export default function App() {
                 <ContactInfoPage language={language} setCurrentTab={setCurrentTab} triggerModal={triggerModal} />
               )}
 
+                </motion.div>
+              </AnimatePresence>
             </div>
 
             {/* 5. APP NAV BOTTOM BAR */}
@@ -7159,6 +6861,10 @@ export default function App() {
           totalProfit={state.totalProfit}
           claimCooldownText={claimCooldownText}
           onClaimYield={handleClaimYield}
+          onViewMining={() => {
+            setHarvestModalOpen(false);
+            setCurrentTab('livemining');
+          }}
         />
 
         {/* WELCOME BONUS ACHIEVEMENTS SCHEMA MODAL */}
@@ -7508,8 +7214,8 @@ export default function App() {
                     {language === 'id' ? 'RIWAYAT MISI SELESAI' : 'COMPLETED MISSIONS HISTORY'}
                   </div>
                   <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
-                    {claimedMissionsHistory.map((item) => (
-                      <div key={item.id} className="p-2 rounded-xl bg-[#080d19]/80 border border-emerald-500/10 flex justify-between items-center gap-2">
+                    {claimedMissionsHistory.map((item, idx) => (
+                      <div key={`${item.id}-${idx}`} className="p-2 rounded-xl bg-[#080d19]/80 border border-emerald-500/10 flex justify-between items-center gap-2">
                         <div className="min-w-0">
                           <div className="text-[9.5px] font-extrabold text-slate-200 truncate">{item.title}</div>
                           <div className="text-[7px] text-slate-500 font-bold font-mono mt-0.5">

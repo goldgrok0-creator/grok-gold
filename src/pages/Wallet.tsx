@@ -8,6 +8,7 @@ import { useAppState } from '../AppContext';
 import { useWallet } from '../hooks/useWallet';
 import { useContract } from '../hooks/useContract';
 import { CONFIG } from '../types';
+import { calculateCappingEarnings } from '../utils/capping';
 import { TRANSLATIONS } from '../translations';
 
 const WalletPage: React.FC = () => {
@@ -70,12 +71,18 @@ const WalletPage: React.FC = () => {
   // Calculations
   const totalEarned = state.totalEarned;
   const totalPortfolioValue = state.activeContracts * CONFIG.PRICE_PER_UNIT;
+  const dailyYield = totalPortfolioValue * CONFIG.DAILY_REWARD_PERCENT;
   
-  // Distribute totalEarned among categories
-  const miningProfit = Math.round(totalEarned * 0.55);
-  const referralReward = Math.round(totalEarned * 0.25);
-  const rebateReward = Math.round(totalEarned * 0.15);
-  const bonusReward = Math.round(totalEarned * 0.05);
+  // Real Income Breakdown from transactions and WELCOME BONUS PROGRAM
+  const { miningProfit, referralReward, rebateReward, bonusReward } = useMemo(() => {
+    const metrics = calculateCappingEarnings(state);
+    return {
+      miningProfit: metrics.dailyRewardEarnings,
+      referralReward: metrics.referralEarnings,
+      rebateReward: metrics.rebateEarnings,
+      bonusReward: metrics.bonusIncome,
+    };
+  }, [state]);
 
   const bonusProgressRatio = CONFIG.REQUIRED_HOLDERS > 0 
     ? Math.min(100, (networkActiveCount / CONFIG.REQUIRED_HOLDERS) * 100) 
@@ -309,8 +316,8 @@ const WalletPage: React.FC = () => {
                 <span className="text-white font-extrabold">Rp {totalEarned.toLocaleString('id-ID')}</span>
               </div>
               <div className="flex justify-between border-b border-white/5 pb-2">
-                <span className="text-slate-400">🎁 Daily Reward</span>
-                <span className="text-emerald-400 font-extrabold">Rp {miningProfit.toLocaleString('id-ID')}</span>
+                <span className="text-slate-400">🎁 Daily Reward Rate</span>
+                <span className="text-emerald-400 font-extrabold">Rp {dailyYield.toLocaleString('id-ID')} (2%)</span>
               </div>
               <div className="flex justify-between border-b border-white/5 pb-2">
                 <span className="text-slate-400">👥 Referral Reward</span>
@@ -340,8 +347,8 @@ const WalletPage: React.FC = () => {
                   <div>{t.emptyTx}</div>
                 </div>
               ) : (
-                state.transactions.map((tx) => (
-                  <div key={tx.id} className="flex justify-between items-center py-2.5 border-b border-white/5 last:border-none">
+                state.transactions.map((tx, idx) => (
+                  <div key={`${tx.id}-${idx}`} className="flex justify-between items-center py-2.5 border-b border-white/5 last:border-none">
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${
                         tx.type === 'deposit'
@@ -971,8 +978,8 @@ const WalletPage: React.FC = () => {
 
             <div className="border-l-4 border-emerald-400 bg-emerald-500/5 p-3 rounded-xl flex justify-between items-center">
               <div>
-                <span className="text-[9px] text-emerald-400 font-bold block">DAILY REWARD ({(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}%)</span>
-                <span className="text-slate-200 text-xs font-bold font-sans">Daily Active Contract Yield</span>
+                <span className="text-[9px] text-emerald-400 font-bold block uppercase">TOTAL MINING REWARDS EARNED</span>
+                <span className="text-slate-200 text-xs font-bold font-sans">Cumulative Mining Yield</span>
               </div>
               <span className="text-emerald-400 font-black text-sm font-mono">Rp {miningProfit.toLocaleString('id-ID')}</span>
             </div>

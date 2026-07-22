@@ -3,6 +3,7 @@ import { useAppState } from '../AppContext';
 import { contractService } from '../services/contractService';
 import { CONFIG, Transaction } from '../types';
 import { TRANSLATIONS } from '../translations';
+import { calculateNetworkActiveCount } from '../utils/network';
 
 export const useContract = () => {
   const {
@@ -20,19 +21,7 @@ export const useContract = () => {
 
   const networkActiveCount = useMemo(() => {
     if (!currentAccount) return 0;
-    // Calculate total active downline users
-    const calculateHoldersRecursive = (user: string): string[] => {
-      const children = accounts.filter(acc => acc.invitedBy?.toLowerCase() === user.toLowerCase());
-      const usernames = children.map(c => c.username.toLowerCase());
-      let results = [...usernames];
-      for (const child of children) {
-        results = [...results, ...calculateHoldersRecursive(child.username)];
-      }
-      return results;
-    };
-    const allDownlinesUsernames = Array.from(new Set(calculateHoldersRecursive(currentAccount.username)));
-    const downlinesAccounts = accounts.filter(acc => allDownlinesUsernames.includes(acc.username.toLowerCase()));
-    return downlinesAccounts.filter(acc => acc.state?.activeContracts > 0).length;
+    return calculateNetworkActiveCount(currentAccount.username, accounts).count;
   }, [currentAccount, accounts]);
 
   const canClaimWelcomeBonus = useMemo(() => {
@@ -173,54 +162,7 @@ export const useContract = () => {
   };
 
   const harvestRewards = async () => {
-    const pendingAmount = Math.round(state.pendingMiningReward);
-    if (pendingAmount <= 0) {
-      triggerModal(
-        language === 'id' ? '❌ Tidak ada hasil tambang yang bisa dipanen saat ini.' : '❌ No mining yields available to harvest right now.',
-        'warning'
-      );
-      return false;
-    }
-
-    if (!currentAccount) return false;
-    setIsLoading(true);
-
-    const success = await contractService.updatePendingReward(currentAccount.username, 0);
-    setIsLoading(false);
-
-    if (success) {
-      const harvestTx: Transaction = {
-        id: 'HRV-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
-        type: 'reward',
-        amount: pendingAmount,
-        date: Date.now(),
-        description: language === 'id' 
-          ? `Panen Hasil Tambang Emas` 
-          : `Harvested Gold Mining Yields`,
-      };
-
-      updateState(prev => ({
-        ...prev,
-        mainBalance: prev.mainBalance + pendingAmount,
-        totalEarned: prev.totalEarned + pendingAmount,
-        pendingMiningReward: 0,
-        transactions: [harvestTx, ...prev.transactions],
-      }), true);
-
-      triggerModal(
-        language === 'id'
-          ? `✅ Berhasil memanen hasil tambang sebesar Rp ${pendingAmount.toLocaleString('id-ID')} ke Saldo Utama Anda!`
-          : `✅ Successfully harvested Rp ${pendingAmount.toLocaleString('id-ID')} worth of gold yields to your Main Balance!`,
-        'success'
-      );
-      return true;
-    } else {
-      triggerModal(
-        language === 'id' ? '❌ Gagal memanen hasil tambang.' : '❌ Failed to harvest mining rewards.',
-        'danger'
-      );
-      return false;
-    }
+    return await claimDailyReward();
   };
 
   const simulateDownlinePurchase = () => {

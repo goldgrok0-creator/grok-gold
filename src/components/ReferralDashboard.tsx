@@ -25,7 +25,7 @@ import {
   Globe,
   ExternalLink
 } from 'lucide-react';
-import { UserAccount, AppState, CONFIG } from '../types';
+import { UserAccount, AppState, CONFIG, isMemberAccount } from '../types';
 
 interface ReferralDashboardProps {
   accounts: UserAccount[];
@@ -168,6 +168,7 @@ export default function ReferralDashboard({
   const direct = useMemo(() => {
     return accounts.filter(
       acc =>
+        isMemberAccount(acc) &&
         acc.invitedBy &&
         currentAccount &&
         acc.invitedBy.toLowerCase() === currentAccount.username.toLowerCase()
@@ -178,7 +179,7 @@ export default function ReferralDashboard({
 
   const l2 = useMemo(() => {
     return accounts.filter(
-      acc => acc.invitedBy && level1Usernames.includes(acc.invitedBy.toLowerCase())
+      acc => isMemberAccount(acc) && acc.invitedBy && level1Usernames.includes(acc.invitedBy.toLowerCase())
     );
   }, [accounts, level1Usernames]);
 
@@ -186,7 +187,7 @@ export default function ReferralDashboard({
 
   const l3 = useMemo(() => {
     return accounts.filter(
-      acc => acc.invitedBy && level2Usernames.includes(acc.invitedBy.toLowerCase())
+      acc => isMemberAccount(acc) && acc.invitedBy && level2Usernames.includes(acc.invitedBy.toLowerCase())
     );
   }, [accounts, level2Usernames]);
 
@@ -225,10 +226,10 @@ export default function ReferralDashboard({
   // --- 4. DYNAMIC LEADERBOARD SORTED BY REFERRALS ---
   const topReferrers = useMemo(() => {
     return accounts
-      .filter(acc => acc.username.toLowerCase() !== 'admin')
+      .filter(isMemberAccount)
       .map(acc => {
         const directDownlinesCount = accounts.filter(
-          down => down.invitedBy && down.invitedBy.toLowerCase() === acc.username.toLowerCase()
+          down => isMemberAccount(down) && down.invitedBy && down.invitedBy.toLowerCase() === acc.username.toLowerCase()
         ).length;
         const refBonus = acc.state?.referralEarned || (directDownlinesCount * 18000);
         return {

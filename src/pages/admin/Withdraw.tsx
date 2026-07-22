@@ -35,8 +35,9 @@ export default function Withdraw({
   useEffect(() => {
     fetchDirectWithdrawals();
 
+    const channelName = `direct-withdrawals-admin-refresh_${Math.random().toString(36).substring(2, 9)}`;
     const channel = supabase
-      .channel('direct-withdrawals-admin-refresh')
+      .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawals' }, () => {
         fetchDirectWithdrawals();
       })
