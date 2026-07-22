@@ -30,7 +30,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   rebateReward,
   bonusReward,
 }) => {
-  const [selectedCategory, setSelectedCategory] = React.useState<'mining' | 'referral' | 'bonus' | 'rebate' | null>(null);
+  const [selectedCategory, setSelectedCategory] = React.useState<'mining' | 'referral' | 'bonus' | 'rebate' | 'contracts' | null>(null);
 
   // Calculations for Portfolio Overview
   const activeContractsCount = state.activeContracts || 0;
@@ -175,7 +175,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   r={R}
                   stroke="#1a1130"
                   strokeWidth={strokeWidth}
-                  fill="transparent"
+                  fill="none"
                 />
 
                 {/* Mining Segment (Amber/Gold) */}
@@ -185,11 +185,15 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   r={R}
                   stroke="#f59e0b"
                   strokeWidth={strokeWidth}
-                  fill="transparent"
+                  fill="none"
+                  pointerEvents="stroke"
                   strokeDasharray={segMining.strokeDasharray}
                   strokeDashoffset={segMining.strokeDashoffset}
                   className="transition-all duration-300 ease-out cursor-pointer hover:stroke-amber-300 hover:stroke-[12]"
-                  onClick={() => setSelectedCategory('mining')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCategory('mining');
+                  }}
                 >
                   <title>Mining Income: Rp {miningProfit.toLocaleString('id-ID')} ({miningPct}%)</title>
                 </circle>
@@ -201,11 +205,15 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   r={R}
                   stroke="#22c55e"
                   strokeWidth={strokeWidth}
-                  fill="transparent"
+                  fill="none"
+                  pointerEvents="stroke"
                   strokeDasharray={segReferral.strokeDasharray}
                   strokeDashoffset={segReferral.strokeDashoffset}
                   className="transition-all duration-300 ease-out cursor-pointer hover:stroke-emerald-300 hover:stroke-[12]"
-                  onClick={() => setSelectedCategory('referral')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCategory('referral');
+                  }}
                 >
                   <title>Referral Income: Rp {referralReward.toLocaleString('id-ID')} ({referralPct}%)</title>
                 </circle>
@@ -217,11 +225,15 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   r={R}
                   stroke="#a855f7"
                   strokeWidth={strokeWidth}
-                  fill="transparent"
+                  fill="none"
+                  pointerEvents="stroke"
                   strokeDasharray={segBonus.strokeDasharray}
                   strokeDashoffset={segBonus.strokeDashoffset}
                   className="transition-all duration-300 ease-out cursor-pointer hover:stroke-purple-300 hover:stroke-[12]"
-                  onClick={() => setSelectedCategory('bonus')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCategory('bonus');
+                  }}
                 >
                   <title>Bonus Income: Rp {bonusReward.toLocaleString('id-ID')} ({bonusPct}%)</title>
                 </circle>
@@ -233,11 +245,15 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   r={R}
                   stroke="#3b82f6"
                   strokeWidth={strokeWidth}
-                  fill="transparent"
+                  fill="none"
+                  pointerEvents="stroke"
                   strokeDasharray={segRebate.strokeDasharray}
                   strokeDashoffset={segRebate.strokeDashoffset}
                   className="transition-all duration-300 ease-out cursor-pointer hover:stroke-blue-300 hover:stroke-[12]"
-                  onClick={() => setSelectedCategory('rebate')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCategory('rebate');
+                  }}
                 >
                   <title>Rebate Income: Rp {rebateReward.toLocaleString('id-ID')} ({rebatePct}%)</title>
                 </circle>
@@ -245,13 +261,13 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
               {/* Ring Center Info */}
               <div 
-                onClick={() => setSelectedCategory('mining')} 
-                className="absolute inset-0 flex flex-col items-center justify-center text-center p-3 pointer-events-auto cursor-pointer"
+                onClick={() => setSelectedCategory('contracts')} 
+                className="absolute inset-0 flex flex-col items-center justify-center text-center p-3 pointer-events-auto cursor-pointer group"
               >
-                <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 tracking-wider uppercase mb-0.5">
+                <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 tracking-wider uppercase mb-0.5 group-hover:text-amber-400 transition-colors">
                   NILAI KONTRAK AKTIF
                 </span>
-                <span className="text-xl sm:text-2xl font-black text-amber-300 font-orbitron leading-tight mb-1">
+                <span className="text-xl sm:text-2xl font-black text-amber-300 font-orbitron leading-tight mb-1 group-hover:scale-105 transition-transform">
                   Rp {activeContractValue.toLocaleString('id-ID')}
                 </span>
                 <div className="flex items-center gap-1.5 my-0.5">
@@ -401,12 +417,14 @@ export const WalletPage: React.FC<WalletPageProps> = ({
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2">
                 <span className="text-lg">
+                  {selectedCategory === 'contracts' && '💎'}
                   {selectedCategory === 'mining' && '⛏️'}
                   {selectedCategory === 'referral' && '👥'}
                   {selectedCategory === 'bonus' && '🎁'}
                   {selectedCategory === 'rebate' && '🔄'}
                 </span>
                 <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                  {selectedCategory === 'contracts' && (language === 'id' ? 'Detail Nilai Kontrak' : 'Active Contract Detail')}
                   {selectedCategory === 'mining' && 'Mining Income Detail'}
                   {selectedCategory === 'referral' && 'Referral Income Detail'}
                   {selectedCategory === 'bonus' && 'Bonus Income Detail'}
@@ -415,7 +433,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               </div>
               <button 
                 onClick={() => setSelectedCategory(null)}
-                className="w-7 h-7 rounded-full bg-white/10 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold"
+                className="w-7 h-7 rounded-full bg-white/10 text-slate-400 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
               >
                 ✕
               </button>
@@ -423,9 +441,12 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
             <div className="space-y-3 py-1">
               <div className="bg-white/5 rounded-2xl p-3 border border-white/5 flex justify-between items-center">
-                <span className="text-xs text-slate-400 font-medium">Total Income</span>
+                <span className="text-xs text-slate-400 font-medium">
+                  {selectedCategory === 'contracts' ? (language === 'id' ? 'Nilai Kontrak' : 'Contract Value') : 'Total Income'}
+                </span>
                 <span className="text-sm font-black text-amber-300 font-mono">
                   Rp {
+                    selectedCategory === 'contracts' ? activeContractValue.toLocaleString('id-ID') :
                     selectedCategory === 'mining' ? miningProfit.toLocaleString('id-ID') :
                     selectedCategory === 'referral' ? referralReward.toLocaleString('id-ID') :
                     selectedCategory === 'bonus' ? bonusReward.toLocaleString('id-ID') :
@@ -435,18 +456,22 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               </div>
 
               <div className="bg-white/5 rounded-2xl p-3 border border-white/5 flex justify-between items-center">
-                <span className="text-xs text-slate-400 font-medium">Portfolio Share</span>
+                <span className="text-xs text-slate-400 font-medium">
+                  {selectedCategory === 'contracts' ? (language === 'id' ? 'Unit Aktif' : 'Active Units') : 'Portfolio Share'}
+                </span>
                 <span className="text-xs font-black text-emerald-400 font-mono">
                   {
-                    selectedCategory === 'mining' ? miningPct :
-                    selectedCategory === 'referral' ? referralPct :
-                    selectedCategory === 'bonus' ? bonusPct :
-                    rebatePct
-                  }%
+                    selectedCategory === 'contracts' ? `${activeContractsCount} ${language === 'id' ? 'Unit Kontrak' : 'Units'}` :
+                    selectedCategory === 'mining' ? `${miningPct}%` :
+                    selectedCategory === 'referral' ? `${referralPct}%` :
+                    selectedCategory === 'bonus' ? `${bonusPct}%` :
+                    `${rebatePct}%`
+                  }
                 </span>
               </div>
 
               <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-2xl text-[11px] text-slate-300 leading-relaxed">
+                {selectedCategory === 'contracts' && (language === 'id' ? `Total nilai deposit dan modal kerja dari ${activeContractsCount} unit server pertambangan GPU aktif Anda (${activeContractsCount} x Rp ${CONFIG.PRICE_PER_UNIT.toLocaleString('id-ID')}).` : `Total active deposit value from ${activeContractsCount} GPU server mining units (${activeContractsCount} x Rp ${CONFIG.PRICE_PER_UNIT.toLocaleString('id-ID')}).`)}
                 {selectedCategory === 'mining' && (language === 'id' ? 'Hasil klaim profit harian (2% per klaim) dari kontrak server GPU pertambangan aktif Anda.' : 'Daily yield claim profit (2% per claim) from your active GPU mining server contracts.')}
                 {selectedCategory === 'referral' && (language === 'id' ? 'Komisi bonus dari tim dan teman yang Anda undang ke platform.' : 'Commission rewards from team members and invited friends on the platform.')}
                 {selectedCategory === 'bonus' && (language === 'id' ? 'Bonus promosi khusus, milestone pencapaian, dan event spesial.' : 'Special promotional bonuses, achievement milestones, and event rewards.')}
