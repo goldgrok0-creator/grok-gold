@@ -3685,23 +3685,34 @@ export default function App() {
                     </div>
 
                     {/* Action buttons at the bottom of the card - fixed, non-scrolling */}
-                    <div className="z-10 space-y-3.5 mt-auto pt-4.5 border-t border-yellow-500/10">
-                      <button
-                        onClick={handleRegister}
-                        className="w-full py-3.5 bg-gradient-to-r from-yellow-400 via-yellow-500 to-amber-600 text-black font-extrabold rounded-xl text-[11px] tracking-widest uppercase transition-all duration-300 shadow-[0_4px_20px_rgba(251,191,36,0.2)] hover:brightness-110 active:scale-98 cursor-pointer border border-yellow-300/10"
-                      >
-                        {tAuth.createAccount}
-                      </button>
-
-                      <div className="text-center">
-                        <button
-                          onClick={() => setAuthScreen('login')}
-                          className="text-[10px] font-extrabold text-yellow-400 hover:underline transition cursor-pointer"
+                    <AnimatePresence>
+                      {Boolean(regCountry.trim()) && (
+                        <motion.div
+                          key="register-actions"
+                          initial={{ opacity: 0, y: 12, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 12, scale: 0.96 }}
+                          transition={{ duration: 0.35, ease: "easeOut" }}
+                          className="z-10 space-y-3.5 mt-auto pt-4.5 border-t border-yellow-500/10"
                         >
-                          {tAuth.hasAccount}
-                        </button>
-                      </div>
-                    </div>
+                          <button
+                            onClick={handleRegister}
+                            className="w-full py-3.5 bg-gradient-to-r from-yellow-400 via-yellow-500 to-amber-600 text-black font-extrabold rounded-xl text-[11px] tracking-widest uppercase transition-all duration-300 shadow-[0_4px_20px_rgba(251,191,36,0.2)] hover:brightness-110 active:scale-98 cursor-pointer border border-yellow-300/10"
+                          >
+                            {tAuth.createAccount}
+                          </button>
+
+                          <div className="text-center">
+                            <button
+                              onClick={() => setAuthScreen('login')}
+                              className="text-[10px] font-extrabold text-yellow-400 hover:underline transition cursor-pointer"
+                            >
+                              {tAuth.hasAccount}
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </motion.div>
               )}
