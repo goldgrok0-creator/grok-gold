@@ -123,7 +123,13 @@ export const useAuth = () => {
     }
 
     triggerModal(t.successLogin, 'success');
-    setCurrentTab('home');
+    if (found.username.toLowerCase() === 'admin') {
+      window.history.pushState(null, '', '/admin');
+      window.dispatchEvent(new Event('popstate'));
+      setCurrentTab('admin');
+    } else {
+      setCurrentTab('home');
+    }
   };
 
   const bypassVerification = () => {

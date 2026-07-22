@@ -67,6 +67,7 @@ export interface AppState {
   totalEarned: number;
   referralEarned: number;
   rebateEarned: number;
+  rewardBalance?: number; // Accumulated reward balance waiting to be claimed to wallet_balance
   lastClaimTime: number;
   welcomeBonusClaimed: boolean;
   isLoggedIn: boolean;

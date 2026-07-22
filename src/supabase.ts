@@ -957,6 +957,7 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
       total_earned: account.state.totalEarned,
       referral_earned: account.state.referralEarned,
       rebate_earned: account.state.rebateEarned,
+      reward_balance: account.state.rewardBalance ?? 0,
       last_claim_time: account.state.lastClaimTime,
       welcome_bonus_claimed: account.state.welcomeBonusClaimed,
       profile_image: account.state.profileImage,
@@ -1225,10 +1226,11 @@ async function getInviterUsername(username: string): Promise<string | null> {
 // Distribute commission atomically
 async function distributeReferralCommission(referrer: string, amount: number, buyerUsername: string, level: number, units: number): Promise<void> {
   try {
-    const { data: user } = await supabase.from('users').select('main_balance, referral_earned, active_contracts').eq('username', referrer).single();
+    const { data: user } = await supabase.from('users').select('main_balance, reward_balance, referral_earned, active_contracts').eq('username', referrer).single();
     if (!user) return;
 
     const currentBalance = Number(user.main_balance) || 0;
+    const currentRewardBalance = Number(user.reward_balance) || 0;
     const currentRefEarned = Number(user.referral_earned) || 0;
     const activeContracts = Number(user.active_contracts) || 0;
 
@@ -1260,7 +1262,7 @@ async function distributeReferralCommission(referrer: string, amount: number, bu
       supabase
         .from('users')
         .update({
-          main_balance: currentBalance + finalCommission,
+          reward_balance: currentRewardBalance + finalCommission,
           referral_earned: currentRefEarned + finalCommission
         })
         .eq('username', referrer),
@@ -1283,17 +1285,17 @@ async function distributeReferralCommission(referrer: string, amount: number, bu
 // Claim welcome bonus
 export async function claimWelcomeBonusInSupabase(username: string): Promise<boolean> {
   try {
-    const { data: user } = await supabase.from('users').select('main_balance, welcome_bonus_claimed').eq('username', username).single();
+    const { data: user } = await supabase.from('users').select('main_balance, reward_balance, welcome_bonus_claimed').eq('username', username).single();
     if (!user || user.welcome_bonus_claimed) return false;
 
-    const currentBalance = Number(user.main_balance) || 0;
+    const currentRewardBalance = Number(user.reward_balance) || 0;
     const bonusAmount = CONFIG.WELCOME_BONUS_AMOUNT; // 1,800,000
 
     const txId = 'WLC-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
     const [userUpdate, txInsert] = await Promise.all([
       supabase.from('users').update({
-        main_balance: currentBalance + bonusAmount,
+        reward_balance: currentRewardBalance + bonusAmount,
         welcome_bonus_claimed: true
       }).eq('username', username),
       supabase.from('transactions').insert({
@@ -1401,8 +1403,9 @@ export async function claimDailyRewardInSupabase(
       supabase.from('users').update({
         main_balance: currentBalance + finalRewardCredited + streakBonus,
         total_earned: currentEarned + finalRewardCredited + streakBonus,
-        last_claim_time: Date.now(),
+        reward_balance: 0,
         pending_mining_reward: 0,
+        last_claim_time: Date.now(),
         settings: nextSettings
       }).eq('username', username),
       supabase.from('transactions').insert({

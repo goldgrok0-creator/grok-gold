@@ -91,7 +91,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
           {t.totalBalance}
         </span>
         <div className="text-3xl font-black text-gradient-gold font-orbitron mb-5">
-          Rp {(state.mainBalance + totalEarned).toLocaleString('id-ID')}
+          Rp {state.mainBalance.toLocaleString('id-ID')}
         </div>
 
         <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
@@ -104,7 +104,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
           <div className="text-right">
             <span className="text-[9px] text-slate-400 font-bold block mb-1">{t.rewardBalance}</span>
             <div className="text-sm font-black text-gold-primary">
-              Rp {totalEarned.toLocaleString('id-ID')}
+              Rp {((state.rewardBalance ?? 0) + (state.pendingMiningReward ?? 0)).toLocaleString('id-ID')}
             </div>
           </div>
         </div>

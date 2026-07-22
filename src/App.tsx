@@ -348,6 +348,7 @@ export default function App() {
     totalEarned: 0,
     referralEarned: 0,
     rebateEarned: 0,
+    rewardBalance: 0,
     lastClaimTime: 0,
     welcomeBonusClaimed: false,
     isLoggedIn: false,
@@ -428,6 +429,11 @@ export default function App() {
             }));
             if (found.settings?.language) {
               setLanguage(found.settings.language);
+            }
+            if (found.username.toLowerCase() === 'admin') {
+              if (window.location.pathname === '/admin' || window.location.pathname === '/admin/') {
+                setCurrentTab('admin');
+              }
             }
             if (found.settings?.spinTickets !== undefined) setSpinTickets(found.settings.spinTickets);
             if (found.settings?.spinCount !== undefined) setSpinCount(found.settings.spinCount);
@@ -1505,7 +1511,13 @@ export default function App() {
     }
 
     triggerModal(t.successLogin, 'success');
-    setCurrentTab('home');
+    if (found.username.toLowerCase() === 'admin') {
+      window.history.pushState(null, '', '/admin');
+      window.dispatchEvent(new Event('popstate'));
+      setCurrentTab('admin');
+    } else {
+      setCurrentTab('home');
+    }
   };
 
   const handleBypassVerification = () => {
@@ -2188,71 +2200,49 @@ export default function App() {
 
   // --- PROCESS COOLDOWN & HARVEST CLAIMS ---
   const handleClaimYield = () => {
-    if (state.activeContracts === 0) {
-      triggerModal(
-        "No active contract. Purchase a contract to start earning rewards.",
-        'warning'
-      );
-      return;
-    }
-
+    // 1. Check if eligible for daily contract mining reward
+    let dailyMiningYield = 0;
     const nowServer = Date.now() + serverTimeOffset;
-    if (state.lastClaimTime !== 0 && nowServer - state.lastClaimTime < CONFIG.CLAIM_COOLDOWN) {
-      triggerModal(
-        "You have already claimed today's reward. Please come back after the countdown ends.",
-        'warning'
-      );
-      return;
+
+    if (state.activeContracts > 0 && (state.lastClaimTime === 0 || nowServer - state.lastClaimTime >= CONFIG.CLAIM_COOLDOWN)) {
+      const contractValue = state.activeContracts * CONFIG.PRICE_PER_UNIT;
+      const rewardAmount = contractValue * CONFIG.DAILY_REWARD_PERCENT;
+      const claimAmountRounded = Math.round(rewardAmount);
+
+      const maxAllowed = state.activeContracts * CONFIG.PRICE_PER_UNIT * CONFIG.CAPPING_PERCENT;
+      const prevMiningProfit = (state.transactions || [])
+        .filter(t => t.type === 'reward')
+        .reduce((sum, item) => sum + item.amount, 0);
+      const prevReferralReward = (state.transactions || [])
+        .filter(t => t.type === 'referral')
+        .reduce((sum, item) => sum + item.amount, 0);
+      const prevRebateReward = (state.transactions || [])
+        .filter(t => t.type === 'rebate')
+        .reduce((sum, item) => sum + item.amount, 0);
+      const currentCappingEarnings = prevMiningProfit + prevReferralReward + prevRebateReward;
+
+      const remainingCapping = Math.max(0, maxAllowed - currentCappingEarnings);
+      dailyMiningYield = Math.round(Math.min(claimAmountRounded, remainingCapping));
     }
 
-    // Reward dihitung berdasarkan nilai kontrak aktif: Daily Reward = Nilai Kontrak × Daily Yield (%)
-    const contractValue = state.activeContracts * CONFIG.PRICE_PER_UNIT;
-    const rewardAmount = contractValue * CONFIG.DAILY_REWARD_PERCENT;
-    const claimAmountRounded = Math.round(rewardAmount);
+    // 2. Sum current uncollected reward_balance + pending mining reward + daily mining yield
+    const totalRewardToClaim = (state.rewardBalance ?? 0) + (state.pendingMiningReward ?? 0) + dailyMiningYield;
 
-    const maxAllowed = state.activeContracts * CONFIG.PRICE_PER_UNIT * CONFIG.CAPPING_PERCENT;
-    const prevMiningProfit = (state.transactions || [])
-      .filter(t => t.type === 'reward')
-      .reduce((sum, item) => sum + item.amount, 0);
-    const prevReferralReward = (state.transactions || [])
-      .filter(t => t.type === 'referral')
-      .reduce((sum, item) => sum + item.amount, 0);
-    const prevRebateReward = (state.transactions || [])
-      .filter(t => t.type === 'rebate')
-      .reduce((sum, item) => sum + item.amount, 0);
-    const currentCappingEarnings = prevMiningProfit + prevReferralReward + prevRebateReward;
-
-    const remainingCapping = Math.max(0, maxAllowed - currentCappingEarnings);
-
-    if (maxAllowed > 0 && remainingCapping <= 0) {
+    if (totalRewardToClaim <= 0) {
       triggerModal(
         language === 'id'
-          ? `⚠️ CAPPING SELESAI\n\nPenghasilan Anda telah mencapai batas maksimal Capping 250% (Rp ${maxAllowed.toLocaleString('id-ID')}). Untuk terus mengklaim reward harian, silakan beli kontrak tambang baru.`
-          : `⚠️ CAPPING REACHED\n\nYour earnings have reached the maximum 250% Capping limit (Rp ${maxAllowed.toLocaleString('id-ID')}). To continue claiming daily rewards, please purchase a new mining contract.`,
+          ? '⚠️ SALDO REWARD KOSONG\n\nTidak ada saldo reward yang dapat diklaim saat ini. Semua pendapatan Mining, Referral, Bonus, dan Rebate akan masuk ke Saldo Reward terlebih dahulu sebelum dipindahkan ke Saldo Wallet.'
+          : '⚠️ NO REWARD BALANCE\n\nThere is no reward balance available to claim right now. All Mining, Referral, Bonus, and Rebate earnings accumulate in Reward Balance first before transferring to Wallet Balance.',
         'warning'
       );
       return;
     }
-
-    const finalClaimAmount = Math.round(Math.min(claimAmountRounded, remainingCapping));
-    if (finalClaimAmount <= 0) {
-      return;
-    }
-
-    console.log('--- REWARD SYSTEM AUDIT LOG ---', {
-      username: currentAccount?.username,
-      activeContracts: state.activeContracts,
-      contractValue,
-      rewardRate: CONFIG.DAILY_REWARD_PERCENT,
-      calculatedReward: rewardAmount,
-      finalRewardCredited: finalClaimAmount
-    });
 
     if (!currentAccount) return;
 
-    claimDailyRewardInSupabase(currentAccount.username, finalClaimAmount).then(success => {
+    claimDailyRewardInSupabase(currentAccount.username, totalRewardToClaim).then(success => {
       if (success) {
-        // Clear any pending background save to prevent overwriting the DB with stale data
+        // Clear any pending background save to prevent overwriting DB
         if (saveTimeoutRef.current) {
           clearTimeout(saveTimeoutRef.current);
           saveTimeoutRef.current = null;
@@ -2261,34 +2251,34 @@ export default function App() {
         const claimTx: Transaction = {
           id: 'CLM-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
           type: 'reward',
-          amount: finalClaimAmount,
+          amount: totalRewardToClaim,
           date: Date.now(),
           description: language === 'id'
-            ? `Klaim Reward Harian (${(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}%)${finalClaimAmount < claimAmountRounded ? ' [Capped]' : ''}`
-            : `Daily Reward Claim (${(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}%)${finalClaimAmount < claimAmountRounded ? ' [Capped]' : ''}`,
+            ? `Klaim Saldo Reward ke Saldo Wallet (Rp ${totalRewardToClaim.toLocaleString('id-ID')})`
+            : `Claim Reward Balance to Wallet Balance (Rp ${totalRewardToClaim.toLocaleString('id-ID')})`,
         };
 
-        // Instantly update local state for a snappy and responsive UI
+        // Instantly transfer entire rewardBalance to mainBalance (wallet_balance) and reset rewardBalance to 0
         setState(prev => ({
           ...prev,
-          mainBalance: prev.mainBalance + finalClaimAmount,
-          totalEarned: prev.totalEarned + finalClaimAmount,
+          mainBalance: prev.mainBalance + totalRewardToClaim,
+          rewardBalance: 0,
           pendingMiningReward: 0,
-          lastClaimTime: Date.now(),
+          lastClaimTime: dailyMiningYield > 0 ? Date.now() : prev.lastClaimTime,
           transactions: [claimTx, ...(prev.transactions || [])],
         }));
 
         triggerModal(
           language === 'id'
-            ? `✅ Berhasil mengklaim reward harian sebesar Rp ${finalClaimAmount.toLocaleString('id-ID')}!${finalClaimAmount < claimAmountRounded ? ' (Dibatasi oleh Capping 250%)' : ''}`
-            : `✅ Successfully claimed daily reward of Rp ${finalClaimAmount.toLocaleString('id-ID')}!${finalClaimAmount < claimAmountRounded ? ' (Limited by 250% Capping)' : ''}`,
+            ? `✅ Berhasil memindahkan seluruh Saldo Reward sebesar Rp ${totalRewardToClaim.toLocaleString('id-ID')} ke Saldo Wallet (Total Saldo) Anda!`
+            : `✅ Successfully transferred entire Reward Balance of Rp ${totalRewardToClaim.toLocaleString('id-ID')} to your Wallet Balance!`,
           'success'
         );
 
         syncFromSupabase();
       } else {
         triggerModal(
-          language === 'id' ? '❌ Gagal mengklaim reward harian.' : '❌ Failed to claim daily reward.',
+          language === 'id' ? '❌ Gagal memindahkan saldo reward ke saldo wallet.' : '❌ Failed to claim reward balance to wallet balance.',
           'danger'
         );
       }
@@ -2766,7 +2756,7 @@ export default function App() {
         const nextHolders = newHolder ? [newHolder, ...prev.holders] : prev.holders;
         return {
           ...prev,
-          mainBalance: prev.mainBalance + finalCommission,
+          rewardBalance: (prev.rewardBalance ?? 0) + finalCommission,
           referralEarned: prev.referralEarned + finalCommission,
           holders: nextHolders,
           transactions: [newTx, ...prev.transactions],
@@ -2813,7 +2803,7 @@ export default function App() {
         // Instantly update local state for a snappy and responsive UI
         setState(prev => ({
           ...prev,
-          mainBalance: prev.mainBalance + CONFIG.WELCOME_BONUS_AMOUNT,
+          rewardBalance: (prev.rewardBalance ?? 0) + CONFIG.WELCOME_BONUS_AMOUNT,
           welcomeBonusClaimed: true
         }));
 
@@ -2888,15 +2878,15 @@ export default function App() {
         
         updateState(prev => ({
           ...prev,
-          mainBalance: prev.mainBalance + prize.value,
+          rewardBalance: (prev.rewardBalance ?? 0) + prize.value,
           totalEarned: prev.totalEarned + prize.value,
           transactions: [newTx, ...prev.transactions],
         }));
 
         triggerModal(
           language === 'id'
-            ? `🎉 SELAMAT!\n\nAnda memenangkan Saldo sebesar Rp ${prize.value.toLocaleString('id-ID')} dari Lucky Spin Wheel!\n\nHadiah telah ditambahkan ke Saldo Utama Anda.`
-            : `🎉 CONGRATULATIONS!\n\nYou won a Balance of Rp ${prize.value.toLocaleString('id-ID')} from the Lucky Spin Wheel!\n\nThe prize has been added to your Main Balance.`,
+            ? `🎉 SELAMAT!\n\nAnda memenangkan Hadiah sebesar Rp ${prize.value.toLocaleString('id-ID')} dari Lucky Spin Wheel!\n\nHadiah telah masuk ke Saldo Reward Anda. Silakan klaim ke Saldo Wallet kapan saja.`
+            : `🎉 CONGRATULATIONS!\n\nYou won a Prize of Rp ${prize.value.toLocaleString('id-ID')} from the Lucky Spin Wheel!\n\nThe prize has been added to your Reward Balance.`,
           'success'
         );
       } else if (prize.type === 'boost') {
@@ -2936,7 +2926,7 @@ export default function App() {
 
     updateState(prev => ({
       ...prev,
-      mainBalance: prev.mainBalance + rewardValue,
+      rewardBalance: (prev.rewardBalance ?? 0) + rewardValue,
       totalEarned: prev.totalEarned + rewardValue,
       transactions: [newTx, ...prev.transactions],
     }));
@@ -2992,8 +2982,8 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* RENDER FULL-SCREEN ADMIN CONSOLE IF LOGGED IN AS ADMIN, ELSE STANDARD USER INTERFACE */}
-      {(currentPath.startsWith('/admin') || (state.isLoggedIn && currentAccount?.username?.toLowerCase() === 'admin')) ? (
+      {/* RENDER FULL-SCREEN ADMIN CONSOLE IF LOGGED IN AS ADMIN OR ON /ADMIN PATH, ELSE STANDARD USER INTERFACE */}
+      {(currentPath.startsWith('/admin') || currentTab === 'admin') ? (
         <div className="w-full min-h-screen bg-slate-950 flex flex-col items-center justify-center">
           {state.isLoggedIn && currentAccount?.username?.toLowerCase() === 'admin' ? (
             <div className="w-full min-h-screen bg-slate-950">
@@ -3291,7 +3281,15 @@ export default function App() {
                             { id: 'about', label: language === 'id' ? 'Tentang Kami' : 'About Us', icon: Info },
                           ];
                           if (currentAccount?.username?.toLowerCase() === 'admin') {
-                            items.push({ id: 'admin', label: 'Admin Panel', icon: ShieldCheck, action: undefined });
+                            items.push({ 
+                              id: 'admin', 
+                              label: 'Admin Panel', 
+                              icon: ShieldCheck, 
+                              action: () => {
+                                window.history.pushState(null, '', '/admin');
+                                window.dispatchEvent(new Event('popstate'));
+                              } 
+                            });
                           }
                           return items;
                         })().map((item) => {

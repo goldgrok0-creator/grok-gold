@@ -9,6 +9,7 @@ import {
   Network as NetworkIcon,
   ShieldAlert,
   LogOut,
+  Globe,
   X
 } from 'lucide-react';
 import { UserAccount, Transaction, AppState } from '../../types';
@@ -94,6 +95,7 @@ export default function AdminLayout({
 
   const navigate = (path: string) => {
     window.history.pushState(null, '', path);
+    window.dispatchEvent(new Event('popstate'));
     setCurrentPath(path);
   };
 
@@ -485,15 +487,27 @@ export default function AdminLayout({
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse font-bold"></span>
             SYS VER 5.3.0 • {language === 'id' ? 'KONEKSI AKTIF' : 'SECURE CONNECTED'}
           </div>
-          {onLogout && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={onLogout}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-extrabold bg-rose-600/15 hover:bg-rose-600 border border-rose-500/30 text-rose-400 hover:text-white transition uppercase cursor-pointer"
+              onClick={() => {
+                window.history.pushState(null, '', '/');
+                window.dispatchEvent(new Event('popstate'));
+              }}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-extrabold bg-purple-900/30 hover:bg-purple-800 border border-purple-500/30 text-purple-300 hover:text-white transition uppercase cursor-pointer"
             >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>{language === 'id' ? 'Keluar' : 'Logout'}</span>
+              <Globe className="w-3.5 h-3.5" />
+              <span>{language === 'id' ? 'Aplikasi Member' : 'Member App'}</span>
             </button>
-          )}
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-extrabold bg-rose-600/15 hover:bg-rose-600 border border-rose-500/30 text-rose-400 hover:text-white transition uppercase cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>{language === 'id' ? 'Keluar' : 'Logout'}</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

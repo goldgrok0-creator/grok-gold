@@ -31,20 +31,16 @@ export default function AdminRouteLoginForm({
 
     setLoading(true);
     try {
-      if (usr.trim().toLowerCase() !== 'admin') {
-        triggerModal(language === 'id' ? '❌ Akun admin tidak ditemukan!' : '❌ Admin account not found!', 'danger');
-        setLoading(false);
-        return;
-      }
+      const identifier = usr.trim().toLowerCase();
 
       // Direct database query for admin authentication (tamper-proof!)
       const { data: found, error: fetchErr } = await supabase
         .from('users')
         .select('*')
-        .eq('username', 'admin')
-        .single();
+        .or(`username.ilike.${identifier},email.ilike.${identifier}`)
+        .maybeSingle();
 
-      if (fetchErr || !found) {
+      if (fetchErr || !found || (found.username?.toLowerCase() !== 'admin' && found.role !== 'admin')) {
         triggerModal(language === 'id' ? '❌ Akun admin tidak ditemukan!' : '❌ Admin account not found!', 'danger');
         setLoading(false);
         return;
@@ -83,6 +79,8 @@ export default function AdminRouteLoginForm({
       localStorage.setItem('grockgold_logged_in_username_v4', adminMapped.username);
       setCurrentAccount(adminMapped);
       updateState({ isLoggedIn: true });
+      window.history.pushState(null, '', '/admin');
+      window.dispatchEvent(new Event('popstate'));
       triggerModal(language === 'id' ? '🔑 Akses Admin Diterima!' : '🔑 Admin Access Granted!', 'success');
     } catch (err: any) {
       triggerModal(err?.message || 'Login failed', 'danger');
