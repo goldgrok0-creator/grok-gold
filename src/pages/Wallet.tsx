@@ -235,7 +235,7 @@ const WalletPage: React.FC = () => {
               {t.totalBalance}
             </span>
             <div className="text-3xl font-black text-gradient-gold font-orbitron mb-5">
-              Rp {(state.mainBalance + totalEarned).toLocaleString('id-ID')}
+              Rp {Math.floor((state.mainBalance ?? 0) + (state.rewardBalance ?? 0)).toLocaleString('id-ID')}
             </div>
 
             <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
@@ -248,7 +248,7 @@ const WalletPage: React.FC = () => {
               <div className="text-right">
                 <span className="text-[9px] text-slate-400 font-bold block mb-1">{t.rewardBalance}</span>
                 <div className="text-sm font-black text-gold-primary">
-                  Rp {totalEarned.toLocaleString('id-ID')}
+                  Rp {Math.floor(state.rewardBalance ?? 0).toLocaleString('id-ID')}
                 </div>
               </div>
             </div>
@@ -309,7 +309,7 @@ const WalletPage: React.FC = () => {
                 <span className="text-white font-extrabold">Rp {totalEarned.toLocaleString('id-ID')}</span>
               </div>
               <div className="flex justify-between border-b border-white/5 pb-2">
-                <span className="text-slate-400">⛏️ Mining Profit</span>
+                <span className="text-slate-400">🎁 Daily Reward</span>
                 <span className="text-emerald-400 font-extrabold">Rp {miningProfit.toLocaleString('id-ID')}</span>
               </div>
               <div className="flex justify-between border-b border-white/5 pb-2">
@@ -971,8 +971,8 @@ const WalletPage: React.FC = () => {
 
             <div className="border-l-4 border-emerald-400 bg-emerald-500/5 p-3 rounded-xl flex justify-between items-center">
               <div>
-                <span className="text-[9px] text-emerald-400 font-bold block">DAILY MINING Harvester ({(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}%)</span>
-                <span className="text-slate-200 text-xs font-bold font-sans">PT GrockGold Daily Fleet Distribution</span>
+                <span className="text-[9px] text-emerald-400 font-bold block">DAILY REWARD ({(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}%)</span>
+                <span className="text-slate-200 text-xs font-bold font-sans">Daily Active Contract Yield</span>
               </div>
               <span className="text-emerald-400 font-black text-sm font-mono">Rp {miningProfit.toLocaleString('id-ID')}</span>
             </div>

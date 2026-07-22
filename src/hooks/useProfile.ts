@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAppState } from '../AppContext';
 import { accountService } from '../services/accountService';
+import { hashPassword } from '../supabase';
 
 export const useProfile = () => {
   const {
@@ -21,7 +22,10 @@ export const useProfile = () => {
       return false;
     }
 
-    if (currentAccount?.password !== oldPass) {
+    const hashedOldPass = await hashPassword(oldPass);
+    const passMatches = (currentAccount?.password === oldPass) || (currentAccount?.password === hashedOldPass);
+
+    if (!passMatches) {
       triggerModal(language === 'id' ? '❌ Kata sandi lama salah!' : '❌ Incorrect old password!', 'danger');
       return false;
     }

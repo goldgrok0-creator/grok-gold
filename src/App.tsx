@@ -93,6 +93,7 @@ import PrivacyPolicyPage from './components/PrivacyPolicyPage';
 import TermsOfServicePage from './components/TermsOfServicePage';
 import ContactInfoPage from './components/ContactInfoPage';
 import { SearchableCountrySelect } from './components/SearchableCountrySelect';
+import { WORLD_COUNTRIES } from './data/countries';
 import ContractPage from './components/ContractPage';
 import NetworkPage from './components/NetworkPage';
 import WalletPage from './components/WalletPage';
@@ -1432,11 +1433,41 @@ export default function App() {
     }
 
     const mappedAccounts = await fetchAccountsFromSupabase(dbUser.username);
-    const found = mappedAccounts?.find(acc => acc.username.toLowerCase() === dbUser.username.toLowerCase());
+    let found = mappedAccounts?.find(acc => acc.username.toLowerCase() === dbUser.username.toLowerCase());
 
     if (!found) {
-      triggerModal(language === 'id' ? '❌ Gagal memetakan data akun!' : '❌ Failed to map account data!', 'danger');
-      return;
+      found = {
+        fullName: dbUser.full_name || '',
+        username: dbUser.username,
+        email: dbUser.email || '',
+        phone: dbUser.phone || '',
+        password: dbUser.password || pass,
+        referralCode: dbUser.referral_code || '',
+        invitedBy: dbUser.invited_by || null,
+        createdAt: Number(dbUser.created_at) || Date.now(),
+        settings: dbUser.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false },
+        state: {
+          mainBalance: Number(dbUser.main_balance) || 0,
+          activeContracts: Number(dbUser.active_contracts) || 0,
+          totalEarned: Number(dbUser.total_earned) || 0,
+          referralEarned: Number(dbUser.referral_earned) || 0,
+          rebateEarned: Number(dbUser.rebate_earned) || 0,
+          rewardBalance: Number(dbUser.reward_balance) || 0,
+          lastClaimTime: Number(dbUser.last_claim_time) || 0,
+          welcomeBonusClaimed: !!dbUser.welcome_bonus_claimed,
+          isLoggedIn: true,
+          username: dbUser.username,
+          holders: [],
+          goldProduction: 0,
+          cyclePercent: 0,
+          hasPurchased: (Number(dbUser.active_contracts) || 0) > 0,
+          profileImage: dbUser.profile_image || null,
+          transactions: [],
+          pendingMiningReward: Number(dbUser.pending_mining_reward) || 0,
+          todayProfit: 0,
+          totalProfit: Number(dbUser.total_earned) || 0
+        }
+      };
     }
 
     // Reset unverifiedEmail state first
@@ -1772,7 +1803,7 @@ export default function App() {
     });
   };
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     const oldPass = profileOldPassword;
     const newPass = profileNewPassword;
     const confirmNew = profileConfirmPassword;
@@ -1782,7 +1813,10 @@ export default function App() {
       return;
     }
 
-    if (currentAccount?.password !== oldPass) {
+    const hashedOld = await hashPassword(oldPass);
+    const passMatches = (currentAccount?.password === oldPass) || (currentAccount?.password === hashedOld);
+
+    if (!passMatches) {
       triggerModal(language === 'id' ? '❌ Kata sandi lama salah!' : '❌ Incorrect old password!', 'danger');
       return;
     }
@@ -2205,91 +2239,80 @@ export default function App() {
     }, 1500);
   };
 
-  // --- PROCESS COOLDOWN & HARVEST CLAIMS ---
-  const handleClaimYield = () => {
-    // 1. Check if eligible for daily contract mining reward
-    let dailyMiningYield = 0;
-    const nowServer = Date.now() + serverTimeOffset;
+  // --- PROCESS DAILY REWARD CLAIMS ---
+  const handleClaimYield = async () => {
+    if (!currentAccount) return;
 
-    if (state.activeContracts > 0 && (state.lastClaimTime === 0 || nowServer - state.lastClaimTime >= CONFIG.CLAIM_COOLDOWN)) {
-      const contractValue = state.activeContracts * CONFIG.PRICE_PER_UNIT;
-      const rewardAmount = contractValue * CONFIG.DAILY_REWARD_PERCENT;
-      const claimAmountRounded = Math.round(rewardAmount);
-
-      const maxAllowed = state.activeContracts * CONFIG.PRICE_PER_UNIT * CONFIG.CAPPING_PERCENT;
-      const prevMiningProfit = (state.transactions || [])
-        .filter(t => t.type === 'reward')
-        .reduce((sum, item) => sum + item.amount, 0);
-      const prevReferralReward = (state.transactions || [])
-        .filter(t => t.type === 'referral')
-        .reduce((sum, item) => sum + item.amount, 0);
-      const prevRebateReward = (state.transactions || [])
-        .filter(t => t.type === 'rebate')
-        .reduce((sum, item) => sum + item.amount, 0);
-      const currentCappingEarnings = prevMiningProfit + prevReferralReward + prevRebateReward;
-
-      const remainingCapping = Math.max(0, maxAllowed - currentCappingEarnings);
-      dailyMiningYield = Math.round(Math.min(claimAmountRounded, remainingCapping));
-    }
-
-    // 2. Sum current uncollected reward_balance + pending mining reward + daily mining yield
-    const totalRewardToClaim = (state.rewardBalance ?? 0) + (state.pendingMiningReward ?? 0) + dailyMiningYield;
-
-    if (totalRewardToClaim <= 0) {
+    if (state.activeContracts === 0) {
       triggerModal(
         language === 'id'
-          ? '⚠️ SALDO REWARD KOSONG\n\nTidak ada saldo reward yang dapat diklaim saat ini. Semua pendapatan Mining, Referral, Bonus, dan Rebate akan masuk ke Saldo Reward terlebih dahulu sebelum dipindahkan ke Saldo Wallet.'
-          : '⚠️ NO REWARD BALANCE\n\nThere is no reward balance available to claim right now. All Mining, Referral, Bonus, and Rebate earnings accumulate in Reward Balance first before transferring to Wallet Balance.',
+          ? '⚠️ TIDAK ADA KONTRAK AKTIF\n\nAnda tidak memiliki unit kontrak aktif. Beli unit kontrak untuk mulai mengklaim Daily Reward.'
+          : '⚠️ NO ACTIVE CONTRACT\n\nYou have no active contracts. Purchase a contract to start earning Daily Reward.',
         'warning'
       );
       return;
     }
 
-    if (!currentAccount) return;
+    const nowServer = Date.now() + serverTimeOffset;
+    if (state.lastClaimTime !== 0 && (nowServer - state.lastClaimTime < CONFIG.CLAIM_COOLDOWN)) {
+      triggerModal(
+        language === 'id'
+          ? '⚠️ SUDAH MENGKLAIM HARI INI\n\nAnda sudah mengklaim Daily Reward hari ini. Silakan tunggu hingga hitung mundur selesai.'
+          : "⚠️ ALREADY CLAIMED TODAY\n\nYou have already claimed today's Daily Reward. Please wait until the countdown ends.",
+        'warning'
+      );
+      return;
+    }
 
-    claimDailyRewardInSupabase(currentAccount.username, totalRewardToClaim).then(success => {
-      if (success) {
-        // Clear any pending background save to prevent overwriting DB
-        if (saveTimeoutRef.current) {
-          clearTimeout(saveTimeoutRef.current);
-          saveTimeoutRef.current = null;
-        }
+    const contractValue = state.activeContracts * CONFIG.PRICE_PER_UNIT;
+    const rewardAmount = Math.round(contractValue * CONFIG.DAILY_REWARD_PERCENT);
 
-        const claimTx: Transaction = {
-          id: 'CLM-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
-          type: 'reward',
-          amount: totalRewardToClaim,
-          date: Date.now(),
-          description: language === 'id'
-            ? `Klaim Saldo Reward ke Saldo Wallet (Rp ${totalRewardToClaim.toLocaleString('id-ID')})`
-            : `Claim Reward Balance to Wallet Balance (Rp ${totalRewardToClaim.toLocaleString('id-ID')})`,
-        };
+    if (rewardAmount <= 0) {
+      triggerModal(
+        language === 'id' ? '⚠️ Jumlah Daily Reward 0.' : '⚠️ Daily Reward amount is 0.',
+        'warning'
+      );
+      return;
+    }
 
-        // Instantly transfer entire rewardBalance to mainBalance (wallet_balance) and reset rewardBalance to 0
-        setState(prev => ({
-          ...prev,
-          mainBalance: prev.mainBalance + totalRewardToClaim,
-          rewardBalance: 0,
-          pendingMiningReward: 0,
-          lastClaimTime: dailyMiningYield > 0 ? Date.now() : prev.lastClaimTime,
-          transactions: [claimTx, ...(prev.transactions || [])],
-        }));
+    const res = await claimDailyRewardInSupabase(currentAccount.username, rewardAmount);
 
-        triggerModal(
-          language === 'id'
-            ? `✅ Berhasil memindahkan seluruh Saldo Reward sebesar Rp ${totalRewardToClaim.toLocaleString('id-ID')} ke Saldo Wallet (Total Saldo) Anda!`
-            : `✅ Successfully transferred entire Reward Balance of Rp ${totalRewardToClaim.toLocaleString('id-ID')} to your Wallet Balance!`,
-          'success'
-        );
-
-        syncFromSupabase();
-      } else {
-        triggerModal(
-          language === 'id' ? '❌ Gagal memindahkan saldo reward ke saldo wallet.' : '❌ Failed to claim reward balance to wallet balance.',
-          'danger'
-        );
+    if (res.success) {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
       }
-    });
+
+      const claimedVal = res.claimedAmount || rewardAmount;
+      const claimTx: Transaction = {
+        id: 'CLM-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+        type: 'reward',
+        amount: claimedVal,
+        date: Date.now(),
+        description: `Daily Reward (${(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}% Contract Yield)`,
+      };
+
+      // Add to rewardBalance directly, mainBalance remains UNCHANGED, do NOT reset pendingMiningReward
+      setState(prev => ({
+        ...prev,
+        rewardBalance: res.rewardBalance ?? ((prev.rewardBalance ?? 0) + claimedVal),
+        totalEarned: res.totalEarned ?? (prev.totalEarned + claimedVal),
+        lastClaimTime: res.lastClaimTime ?? Date.now(),
+        transactions: [claimTx, ...(prev.transactions || [])],
+      }));
+
+      triggerModal(
+        language === 'id'
+          ? `✅ Berhasil mengklaim Daily Reward sebesar Rp ${claimedVal.toLocaleString('id-ID')} ke Saldo Reward Anda!`
+          : `✅ Successfully claimed Daily Reward of Rp ${claimedVal.toLocaleString('id-ID')} to your Reward Balance!`,
+        'success'
+      );
+
+      syncFromSupabase();
+    } else {
+      const errMsg = res.error || (language === 'id' ? 'Gagal mengklaim Daily Reward.' : 'Failed to claim Daily Reward.');
+      triggerModal(`❌ ${errMsg}`, 'danger');
+    }
   };
 
   // --- DEPOSIT FLOW ---
@@ -2396,55 +2419,19 @@ export default function App() {
 
     setIsUploadingProof(true);
     
-    // Upload local compressed base64 image to Supabase Storage and retrieve public URL or error message
+    // Upload local compressed base64 image to Supabase Storage and retrieve public URL or fallback base64 Data URL
     const uploadResult = await uploadProofToSupabaseStorage(depositProof, depositProofName || 'proof.jpg');
     
-    if (uploadResult.error || !uploadResult.url) {
+    const publicUrl = uploadResult.url || depositProof;
+    
+    if (!publicUrl) {
       setIsUploadingProof(false);
-      const originalErr = uploadResult.error ? uploadResult.error : 'Unknown error';
-      console.error('Transfer proof upload failed:', originalErr);
-      
-      const isBucketNotFound = originalErr.toLowerCase().includes('bucket not found') || originalErr.toLowerCase().includes('bucket_not_found');
-      let friendlyMessage = '';
-      if (isBucketNotFound) {
-        friendlyMessage = language === 'id'
-          ? `<div class="text-left space-y-3 font-sans">
-              <p class="font-extrabold text-rose-400 text-sm">❌ Bucket 'deposits' tidak ditemukan di Supabase Storage Anda.</p>
-              <p class="text-xs text-slate-300">Silakan buat bucket ini secara manual di dashboard Supabase Anda dengan langkah-langkah berikut:</p>
-              <ol class="list-decimal list-inside text-[11px] text-slate-400 space-y-1.5 bg-black/40 p-2.5 rounded-lg border border-white/5 font-mono">
-                <li>Buka Dashboard Supabase Anda.</li>
-                <li>Pilih tab <span class="text-amber-400 font-bold">"Storage"</span> di sidebar kiri.</li>
-                <li>Klik tombol <span class="text-amber-400 font-bold">"New bucket"</span>.</li>
-                <li>Beri nama bucket: <span class="text-emerald-400 font-extrabold">deposits</span></li>
-                <li>Pastikan tipenya adalah <span class="text-rose-400 font-extrabold">Private</span> (bukan Public).</li>
-                <li>Klik <span class="text-amber-400 font-bold">"Create bucket"</span> untuk menyimpan.</li>
-                <li>Buka menu <span class="text-amber-400 font-bold">"SQL Editor"</span> di Supabase Anda, buat query baru, jalankan script SQL Schema di bagian bawah file <code class="text-emerald-400">src/supabase.ts</code> untuk mengonfigurasi RLS & Storage Policies secara instan.</li>
-              </ol>
-            </div>`
-          : `<div class="text-left space-y-3 font-sans">
-              <p class="font-extrabold text-rose-400 text-sm">❌ Bucket 'deposits' not found in your Supabase Storage.</p>
-              <p class="text-xs text-slate-300">Please create this storage bucket in your Supabase Dashboard following these steps:</p>
-              <ol class="list-decimal list-inside text-[11px] text-slate-400 space-y-1.5 bg-black/40 p-2.5 rounded-lg border border-white/5 font-mono">
-                <li>Go to your Supabase Dashboard.</li>
-                <li>Click the <span class="text-amber-400 font-bold">"Storage"</span> tab in the left sidebar.</li>
-                <li>Click the <span class="text-amber-400 font-bold">"New bucket"</span> button.</li>
-                <li>Name the bucket: <span class="text-emerald-400 font-extrabold">deposits</span></li>
-                <li>Make sure the bucket type is set to <span class="text-rose-400 font-extrabold">Private</span>.</li>
-                <li>Click <span class="text-amber-400 font-bold">"Create bucket"</span>.</li>
-                <li>Go to the <span class="text-amber-400 font-bold">"SQL Editor"</span> in Supabase, create a new query, copy & run the SQL Schema script from the bottom of file <code class="text-emerald-400">src/supabase.ts</code> to configure RLS & Storage Policies instantly.</li>
-              </ol>
-            </div>`;
-      } else {
-        friendlyMessage = language === 'id'
-          ? `❌ Gagal mengunggah bukti transfer ke Storage: ${originalErr}`
-          : `❌ Failed to upload transfer proof to Storage: ${originalErr}`;
-      }
-
-      triggerModal(friendlyMessage, 'danger');
+      triggerModal(
+        language === 'id' ? '❌ Gagal memproses gambar bukti transfer.' : '❌ Failed to process transfer proof image.',
+        'danger'
+      );
       return;
     }
-
-    const publicUrl = uploadResult.url;
 
     const depId = 'DEP-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
@@ -3582,32 +3569,53 @@ export default function App() {
                           </div>
                         </div>
 
+                        {/* Country */}
+                        <SearchableCountrySelect
+                          value={regCountry}
+                          onChange={(countryName, countryObj) => {
+                            setRegCountry(countryName);
+                            if (countryObj && countryObj.dialCode) {
+                              setRegPhone(countryObj.dialCode + ' ');
+                            }
+                          }}
+                          label={tAuth.country || (language === 'id' ? 'NEGARA' : 'COUNTRY')}
+                        />
+
                         {/* Phone */}
                         <div>
                           <label className="block text-[9px] font-extrabold text-slate-400 tracking-wider mb-1.5 uppercase">
                             {tAuth.phoneNumber}
                           </label>
                           <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                              <Globe className="w-4 h-4 text-slate-500" />
-                            </div>
-                            <input
-                              type="tel"
-                              required
-                              value={regPhone}
-                              onChange={(e) => setRegPhone(e.target.value.replace(/[^0-9+]/g, ''))}
-                              placeholder="e.g. +6281234567890"
-                              className="w-full bg-slate-950/60 border border-slate-800 focus:border-yellow-500/60 outline-none rounded-xl pl-10 pr-4 py-2.5 text-xs font-medium text-white transition font-mono focus:ring-1 focus:ring-yellow-500/20"
-                            />
+                            {(() => {
+                              const countryObj = WORLD_COUNTRIES.find(
+                                c => c.name.toLowerCase() === regCountry.toLowerCase()
+                              );
+                              return (
+                                <>
+                                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    {countryObj ? (
+                                      <span className="text-xs font-mono font-bold text-yellow-400 flex items-center gap-1 select-none">
+                                        <span>{countryObj.flag}</span>
+                                        <span className="text-[11px]">{countryObj.dialCode}</span>
+                                      </span>
+                                    ) : (
+                                      <Globe className="w-4 h-4 text-slate-500" />
+                                    )}
+                                  </div>
+                                  <input
+                                    type="tel"
+                                    required
+                                    value={regPhone}
+                                    onChange={(e) => setRegPhone(e.target.value.replace(/[^0-9+ ]/g, ''))}
+                                    placeholder={countryObj ? `${countryObj.dialCode} 8123456789` : "e.g. +6281234567890"}
+                                    className={`w-full bg-slate-950/60 border border-slate-800 focus:border-yellow-500/60 outline-none rounded-xl ${countryObj ? (countryObj.dialCode.length > 3 ? 'pl-22' : 'pl-18') : 'pl-10'} pr-4 py-2.5 text-xs font-medium text-white transition font-mono focus:ring-1 focus:ring-yellow-500/20`}
+                                  />
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
-
-                        {/* Country */}
-                        <SearchableCountrySelect
-                          value={regCountry}
-                          onChange={setRegCountry}
-                          label={tAuth.country || (language === 'id' ? 'NEGARA' : 'COUNTRY')}
-                        />
 
                         {/* Password */}
                         <div>
@@ -6252,7 +6260,7 @@ export default function App() {
                         { id: 'deposit', label: 'Deposit', icon: <ArrowDown className="w-3.5 h-3.5 text-emerald-400" /> },
                         { id: 'withdraw', label: 'Withdraw', icon: <ArrowUp className="w-3.5 h-3.5 text-rose-400" /> },
                         { id: 'purchase', label: language === 'id' ? 'Pembelian Kontrak' : 'Contract Purchase', icon: <Cpu className="w-3.5 h-3.5 text-amber-400" /> },
-                        { id: 'reward', label: language === 'id' ? 'Mining Profit' : 'Mining Profit', icon: <Coins className="w-3.5 h-3.5 text-yellow-400" /> },
+                        { id: 'reward', label: 'Daily Reward', icon: <Coins className="w-3.5 h-3.5 text-yellow-400" /> },
                         { id: 'referral', label: language === 'id' ? 'Referral Reward' : 'Referral Reward', icon: <Users className="w-3.5 h-3.5 text-blue-400" /> },
                         { id: 'rebate', label: language === 'id' ? 'Rebate Reward' : 'Rebate Reward', icon: <RefreshCw className="w-3.5 h-3.5 text-fuchsia-400" /> },
                         { id: 'bonus', label: language === 'id' ? 'Bonus' : 'Bonus', icon: <Gift className="w-3.5 h-3.5 text-pink-400" /> },

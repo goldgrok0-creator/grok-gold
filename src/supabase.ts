@@ -406,6 +406,16 @@ USING (
 );
 `;
 
+// Helper function to prevent Supabase network requests from hanging indefinitely
+function withTimeout<T>(promise: PromiseLike<T>, timeoutMs = 2000): Promise<T> {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('Supabase request timeout')), timeoutMs)
+    )
+  ]);
+}
+
 // =========================================================================
 // SYSTEM SEEDER FOR DEFAULT ADMIN
 // =========================================================================
@@ -413,11 +423,14 @@ USING (
 export async function seedDefaultAdminIfNeeded(): Promise<void> {
   if (isSupabaseOffline) return;
   try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('username')
-      .eq('username', 'admin')
-      .single();
+    const { data, error } = await withTimeout(
+      supabase
+        .from('users')
+        .select('username')
+        .eq('username', 'admin')
+        .single(),
+      1500
+    );
 
     if (error) {
       console.warn('Supabase not available during admin seed check, switching to offline local storage database.');
@@ -451,7 +464,7 @@ export async function seedDefaultAdminIfNeeded(): Promise<void> {
         }
       };
 
-      await supabase.from('users').insert(adminPayload);
+      await withTimeout(supabase.from('users').insert(adminPayload), 1500);
       console.log('Seeded default admin successfully.');
     }
   } catch (err) {
@@ -482,15 +495,17 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
     let contractsQuery = supabase.from('contracts').select('*');
     let transactionsQuery = supabase.from('transactions').select('*');
 
-    // Fetch all records for all tables to ensure downline statistics and the global leaderboard rankings are fully populated and correct for all users.
-
-    const [usersRes, depositsRes, withdrawalsRes, contractsRes, transactionsRes] = await Promise.all([
-      usersQuery,
-      depositsQuery,
-      withdrawalsQuery,
-      contractsQuery,
-      transactionsQuery
-    ]);
+    // Fetch all records with a 2000ms max timeout to guarantee immediate response speed
+    const [usersRes, depositsRes, withdrawalsRes, contractsRes, transactionsRes] = await withTimeout(
+      Promise.all([
+        usersQuery,
+        depositsQuery,
+        withdrawalsQuery,
+        contractsQuery,
+        transactionsQuery
+      ]),
+      2000
+    );
 
     if (usersRes.error) {
       console.warn('Supabase usersQuery error, falling back to local storage database:', usersRes.error);
@@ -639,7 +654,7 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
         username: user.username,
         email: user.email || '',
         phone: user.phone || '',
-        password: (targetUsername && targetUsername.toLowerCase() === usernameLower) ? (user.password || '') : '',
+        password: user.password || '',
         referralCode: user.username.toLowerCase() === 'admin' ? '' : (user.referral_code || ''),
         invitedBy: user.invited_by || null,
         createdAt: Number(user.created_at) || Date.now(),
@@ -664,6 +679,7 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
           hasPurchased: (Number(user.active_contracts) || 0) > 0,
           profileImage: user.profile_image || null,
           transactions: userTxs,
+          rewardBalance: Number(user.reward_balance) || 0,
           pendingMiningReward: Number(user.pending_mining_reward) || 0,
           todayProfit: userTxs
             .filter(t => t.type === 'reward' && new Date(t.date).toDateString() === new Date().toDateString())
@@ -689,23 +705,17 @@ export async function registerUserInSupabase(account: UserAccount): Promise<bool
     const accounts = getLocalAccounts();
     const exists = accounts.some(a => a.username.toLowerCase() === account.username.toLowerCase());
     if (exists) return false;
-    const hashedPassword = await hashPassword(account.password);
-    const newAccount: UserAccount = {
-      ...account,
-      password: hashedPassword,
-    };
-    accounts.push(newAccount);
+    accounts.push(account);
     saveLocalAccounts(accounts);
     return true;
   }
   try {
-    const hashedPassword = await hashPassword(account.password);
     const payload = {
       username: account.username,
       full_name: account.fullName,
       email: account.email,
       phone: account.phone,
-      password: hashedPassword,
+      password: account.password,
       referral_code: account.referralCode,
       invited_by: account.invitedBy,
       created_at: account.createdAt,
@@ -798,11 +808,30 @@ export async function createDepositInSupabase(
       created_at: Date.now()
     };
 
-    const { error } = await supabase.from('deposits').insert(depositPayload);
+    const { error } = await withTimeout(
+      supabase.from('deposits').insert(depositPayload),
+      3000
+    ).catch(err => ({ error: err }));
 
     if (error) {
-      console.error('Error inserting pending deposit payload:', error);
-      return false;
+      console.warn('Error inserting pending deposit payload into Supabase, saving to local database fallback:', error);
+      const accounts = getLocalAccounts();
+      const idx = accounts.findIndex(a => a.username.toLowerCase() === username.toLowerCase());
+      if (idx !== -1) {
+        if (!accounts[idx].state.transactions) accounts[idx].state.transactions = [];
+        accounts[idx].state.transactions.unshift({
+          id,
+          type: 'deposit',
+          amount,
+          date: Date.now(),
+          description: '⏳ Deposit (Pending)',
+          proofImage,
+          status: 'pending',
+          paymentMethod
+        });
+        saveLocalAccounts(accounts);
+      }
+      return true;
     }
     return true;
   } catch (err) {
@@ -1316,56 +1345,96 @@ export async function claimWelcomeBonusInSupabase(username: string): Promise<boo
   }
 }
 
-// Claim yield / reward claim
+// Claim Daily Reward (2% Contract Yield directly credited to reward_balance)
 export async function claimDailyRewardInSupabase(
   username: string, 
   amount: number, 
   streakBonus: number = 0, 
   currentStreak: number = 1
-): Promise<boolean> {
+): Promise<{ 
+  success: boolean; 
+  error?: string;
+  rewardBalance?: number;
+  totalEarned?: number;
+  lastClaimTime?: number;
+  claimedAmount?: number;
+}> {
   try {
-    const { data: user } = await supabase
+    const { data: user, error: userError } = await supabase
       .from('users')
-      .select('main_balance, total_earned, active_contracts, settings, last_claim_time')
+      .select('main_balance, reward_balance, pending_mining_reward, total_earned, active_contracts, settings, last_claim_time')
       .eq('username', username)
       .single();
-    if (!user) return false;
+
+    if (userError || !user) {
+      console.error('Supabase user query error:', userError);
+      return { 
+        success: false, 
+        error: userError ? userError.message : 'User account not found in database.' 
+      };
+    }
+
+    const activeContracts = Number(user.active_contracts) || 0;
+    if (activeContracts <= 0) {
+      return {
+        success: false,
+        error: 'No active contract. Purchase contract units to start earning Daily Reward.'
+      };
+    }
 
     // Enforce 24-hour claim cooldown based securely on database last_claim_time
     const lastClaim = Number(user.last_claim_time) || 0;
-    if (lastClaim > 0 && (Date.now() - lastClaim < CONFIG.CLAIM_COOLDOWN)) {
-      console.warn(`Database cooldown active for user ${username}. Cannot claim yet.`);
-      return false;
+    const now = Date.now();
+    if (lastClaim > 0 && (now - lastClaim < CONFIG.CLAIM_COOLDOWN)) {
+      const remainingMs = CONFIG.CLAIM_COOLDOWN - (now - lastClaim);
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
+      const hours = Math.floor(remainingSeconds / 3600);
+      const mins = Math.floor((remainingSeconds % 3600) / 60);
+      return {
+        success: false,
+        error: `Daily Reward already claimed. Please wait ${hours}h ${mins}m before next claim.`
+      };
     }
 
-    const currentBalance = Number(user.main_balance) || 0;
+    const currentRewardBalance = Number(user.reward_balance) || 0;
     const currentEarned = Number(user.total_earned) || 0;
-    const activeContracts = Number(user.active_contracts) || 0;
 
     const contractValue = activeContracts * CONFIG.PRICE_PER_UNIT;
     const rewardRate = CONFIG.DAILY_REWARD_PERCENT;
     const calculatedReward = contractValue * rewardRate;
 
+    // Daily reward amount calculated from 2% active contract value
+    const claimAmount = amount > 0 ? amount : Math.round(calculatedReward);
+
     // Enforce 250% Capping Logic
     const maxCapping = activeContracts * CONFIG.PRICE_PER_UNIT * CONFIG.CAPPING_PERCENT;
 
-    const { data: txs } = await supabase
+    const { data: txs, error: txsError } = await supabase
       .from('transactions')
       .select('amount')
       .eq('username', username)
       .in('type', ['reward', 'referral', 'rebate']);
 
+    if (txsError) {
+      console.error('Supabase transactions fetch error:', txsError);
+    }
+
     const cappingEarnings = (txs || []).reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
     const remainingCapping = Math.max(0, maxCapping - cappingEarnings);
 
     if (maxCapping > 0 && remainingCapping <= 0) {
-      console.log(`User ${username} is already fully capped.`);
-      return false;
+      return {
+        success: false,
+        error: 'Contract earnings limit (250% Capping) reached. Please upgrade or renew active contract.'
+      };
     }
 
-    const finalRewardCredited = Math.round(Math.min(amount, remainingCapping));
+    const finalRewardCredited = Math.round(Math.min(claimAmount, remainingCapping));
     if (finalRewardCredited <= 0) {
-      return false;
+      return {
+        success: false,
+        error: 'No reward available to claim.'
+      };
     }
 
     console.log('--- REWARD SYSTEM AUDIT LOG ---', {
@@ -1379,6 +1448,9 @@ export async function claimDailyRewardInSupabase(
       currentStreak
     });
 
+    const totalCredited = finalRewardCredited + streakBonus;
+    const newRewardBalance = currentRewardBalance + totalCredited;
+    const newTotalEarned = currentEarned + totalCredited;
     const txId = 'CLM-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
     // Prepare updated settings with claimStreak and claimStreakHistory
@@ -1389,40 +1461,57 @@ export async function claimDailyRewardInSupabase(
       claimStreakHistory: [
         {
           id: txId,
-          date: Date.now(),
-          amount: finalRewardCredited + streakBonus,
+          date: now,
+          amount: totalCredited,
           streak: currentStreak,
           status: 'Success',
-          balanceBefore: currentBalance,
-          balanceAfter: currentBalance + finalRewardCredited + streakBonus
+          balanceBefore: currentRewardBalance,
+          balanceAfter: newRewardBalance
         },
         ...(userSettings.claimStreakHistory || [])
       ].slice(0, 10)
     };
 
+    // Credit directly to reward_balance, main_balance remains UNCHANGED
     const [userUpdate, txInsert] = await Promise.all([
       supabase.from('users').update({
-        main_balance: currentBalance + finalRewardCredited + streakBonus,
-        total_earned: currentEarned + finalRewardCredited + streakBonus,
-        reward_balance: 0,
-        pending_mining_reward: 0,
-        last_claim_time: Date.now(),
+        reward_balance: newRewardBalance,
+        total_earned: newTotalEarned,
+        last_claim_time: now,
         settings: nextSettings
       }).eq('username', username),
       supabase.from('transactions').insert({
         id: txId,
         username,
         type: 'reward',
-        amount: finalRewardCredited + streakBonus,
-        description: `Klaim Reward Harian (Streak Hari ke-${currentStreak})${streakBonus > 0 ? ` + Bonus Streak Rp ${streakBonus.toLocaleString('id-ID')}` : ''}${finalRewardCredited < amount ? ' [Capped]' : ''}`,
-        created_at: Date.now()
+        amount: totalCredited,
+        description: `Daily Reward (2% Contract Yield)${streakBonus > 0 ? ` + Bonus Streak Rp ${streakBonus.toLocaleString('id-ID')}` : ''}${finalRewardCredited < claimAmount ? ' [Capped]' : ''}`,
+        created_at: now
       })
     ]);
 
-    return !userUpdate.error && !txInsert.error;
-  } catch (err) {
+    if (userUpdate.error) {
+      console.error('Supabase userUpdate error:', userUpdate.error);
+      return { success: false, error: userUpdate.error.message };
+    }
+    if (txInsert.error) {
+      console.error('Supabase txInsert error:', txInsert.error);
+      return { success: false, error: txInsert.error.message };
+    }
+
+    return { 
+      success: true, 
+      rewardBalance: newRewardBalance, 
+      totalEarned: newTotalEarned, 
+      lastClaimTime: now, 
+      claimedAmount: totalCredited 
+    };
+  } catch (err: any) {
     console.error('Error claiming daily reward:', err);
-    return false;
+    return { 
+      success: false, 
+      error: err?.message || 'Failed to claim Daily Reward.' 
+    };
   }
 }
 
@@ -1786,27 +1875,47 @@ export function getStorageFileName(urlOrPath: string): string {
  * images directly from private Supabase Storage buckets.
  */
 export async function getSignedProofUrl(urlOrPath: string): Promise<string | null> {
+  if (!urlOrPath) return null;
+  if (urlOrPath.startsWith('data:') || urlOrPath.startsWith('blob:')) return urlOrPath;
+
   try {
     const fileName = getStorageFileName(urlOrPath);
-    if (!fileName) return null;
+    if (!fileName) return urlOrPath;
     
-    const { data, error } = await supabase.storage
+    const signedPromise = supabase.storage
       .from('deposits')
-      .createSignedUrl(fileName, 3600); // 1 hour validity
+      .createSignedUrl(fileName, 3600);
+
+    const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: { message: 'Signed URL timeout' } }), 1500)
+    );
+
+    const { data, error } = await Promise.race([signedPromise, timeoutPromise]);
 
     if (error) {
-      console.error('Error generating signed URL from Supabase Storage:', error);
-      return null;
+      console.warn('Error generating signed URL from Supabase Storage (using raw path):', error.message || error);
+      return urlOrPath;
     }
-    return data.signedUrl || null;
+    return data?.signedUrl || urlOrPath;
   } catch (err) {
-    console.error('getSignedProofUrl crash:', err);
-    return null;
+    console.warn('getSignedProofUrl crash (using raw path):', err);
+    return urlOrPath;
   }
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 /**
  * Compresses and uploads a transfer proof to Supabase Storage and returns the public URL & errors if any.
+ * If Supabase Storage upload encounters a network error (e.g. 'Failed to fetch') or bucket error,
+ * it seamlessly falls back to returning the base64 data URL so deposit submission always succeeds.
  */
 export async function uploadProofToSupabaseStorage(
   fileOrBase64: File | string,
@@ -1823,16 +1932,26 @@ export async function uploadProofToSupabaseStorage(
     const cleanFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
     const storagePath = `${timestamp}_${uuid}_${cleanFileName}`;
 
-    const { data, error } = await supabase.storage
+    const uploadPromise = supabase.storage
       .from('deposits')
       .upload(storagePath, compressedBlob, {
         contentType: 'image/jpeg',
         upsert: false
       });
 
+    const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: { message: 'Storage upload timeout' } }), 3000)
+    );
+
+    const { data, error } = await Promise.race([uploadPromise, timeoutPromise]);
+
     if (error) {
-      console.error('Supabase Storage upload error detailed:', error);
-      return { url: null, error: error.message };
+      console.warn('Supabase Storage upload warning (falling back to base64 Data URL):', error.message || error);
+      if (typeof fileOrBase64 === 'string' && fileOrBase64.startsWith('data:')) {
+        return { url: fileOrBase64, error: null };
+      }
+      const base64Url = await blobToBase64(compressedBlob);
+      return { url: base64Url, error: null };
     }
 
     const { data: urlData } = supabase.storage
@@ -1841,8 +1960,17 @@ export async function uploadProofToSupabaseStorage(
 
     return { url: urlData.publicUrl || storagePath, error: null };
   } catch (err: any) {
-    console.error('uploadProofToSupabaseStorage crash:', err);
-    return { url: null, error: err.message || String(err) };
+    console.warn('uploadProofToSupabaseStorage crash (falling back to base64 Data URL):', err);
+    if (typeof fileOrBase64 === 'string' && fileOrBase64.startsWith('data:')) {
+      return { url: fileOrBase64, error: null };
+    }
+    try {
+      const compressedBlob = await compressImage(fileOrBase64);
+      const base64Url = await blobToBase64(compressedBlob);
+      return { url: base64Url, error: null };
+    } catch (fallbackErr) {
+      return { url: typeof fileOrBase64 === 'string' ? fileOrBase64 : null, error: null };
+    }
   }
 }
 

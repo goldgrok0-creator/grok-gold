@@ -15,6 +15,7 @@ import { useAuth } from '../hooks/useAuth';
 import WelcomeTicker from '../components/WelcomeTicker';
 import { TRANSLATIONS } from '../translations';
 import { SearchableCountrySelect } from '../components/SearchableCountrySelect';
+import { WORLD_COUNTRIES } from '../data/countries';
 
 // @ts-ignore
 import goldLogo from '../assets/images/gold_logo_icon_1784365650875.jpg';
@@ -290,32 +291,53 @@ export const AuthPage: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Country */}
+                  <SearchableCountrySelect
+                    value={regCountry}
+                    onChange={(countryName, countryObj) => {
+                      setRegCountry(countryName);
+                      if (countryObj && countryObj.dialCode) {
+                        setRegPhone(countryObj.dialCode + ' ');
+                      }
+                    }}
+                    label={tAuth.country || (language === 'id' ? 'NEGARA' : 'COUNTRY')}
+                  />
+
                   {/* Phone */}
                   <div>
                     <label className="block text-[9px] font-extrabold text-slate-400 tracking-wider mb-1.5 uppercase">
                       {tAuth.phoneNumber}
                     </label>
                     <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                        <Globe className="w-4 h-4 text-slate-500" />
-                      </div>
-                      <input
-                        type="tel"
-                        required
-                        value={regPhone}
-                        onChange={(e) => setRegPhone(e.target.value.replace(/[^0-9+]/g, ''))}
-                        placeholder="e.g. +6281234567890"
-                        className="w-full bg-slate-950/60 border border-slate-800 focus:border-yellow-500/60 outline-none rounded-xl pl-10 pr-4 py-2.5 text-xs font-medium text-white transition font-mono focus:ring-1 focus:ring-yellow-500/20"
-                      />
+                      {(() => {
+                        const countryObj = WORLD_COUNTRIES.find(
+                          c => c.name.toLowerCase() === regCountry.toLowerCase()
+                        );
+                        return (
+                          <>
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                              {countryObj ? (
+                                <span className="text-xs font-mono font-bold text-yellow-400 flex items-center gap-1 select-none">
+                                  <span>{countryObj.flag}</span>
+                                  <span className="text-[11px]">{countryObj.dialCode}</span>
+                                </span>
+                              ) : (
+                                <Globe className="w-4 h-4 text-slate-500" />
+                              )}
+                            </div>
+                            <input
+                              type="tel"
+                              required
+                              value={regPhone}
+                              onChange={(e) => setRegPhone(e.target.value.replace(/[^0-9+ ]/g, ''))}
+                              placeholder={countryObj ? `${countryObj.dialCode} 8123456789` : "e.g. +6281234567890"}
+                              className={`w-full bg-slate-950/60 border border-slate-800 focus:border-yellow-500/60 outline-none rounded-xl ${countryObj ? (countryObj.dialCode.length > 3 ? 'pl-22' : 'pl-18') : 'pl-10'} pr-4 py-2.5 text-xs font-medium text-white transition font-mono focus:ring-1 focus:ring-yellow-500/20`}
+                            />
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
-
-                  {/* Country */}
-                  <SearchableCountrySelect
-                    value={regCountry}
-                    onChange={setRegCountry}
-                    label={tAuth.country || (language === 'id' ? 'NEGARA' : 'COUNTRY')}
-                  />
 
                   {/* Password */}
                   <div>

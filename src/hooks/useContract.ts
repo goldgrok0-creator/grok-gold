@@ -109,7 +109,9 @@ export const useContract = () => {
   const claimDailyReward = async () => {
     if (state.activeContracts === 0) {
       triggerModal(
-        "No active contract. Purchase a contract to start earning rewards.",
+        language === 'id' 
+          ? "⚠️ TIDAK ADA KONTRAK AKTIF\n\nAnda tidak memiliki unit kontrak aktif. Beli unit kontrak untuk mulai klaim Daily Reward."
+          : "⚠️ NO ACTIVE CONTRACT\n\nNo active contract. Purchase a contract to start earning rewards.",
         'warning'
       );
       return false;
@@ -118,7 +120,9 @@ export const useContract = () => {
     const now = Date.now();
     if (state.lastClaimTime !== 0 && now - state.lastClaimTime < CONFIG.CLAIM_COOLDOWN) {
       triggerModal(
-        "You have already claimed today's reward. Please come back after the countdown ends.",
+        language === 'id'
+          ? "⚠️ SUDAH MENGKLAIM HARI INI\n\nAnda sudah mengklaim reward harian hari ini. Silakan tunggu hingga hitung mundur selesai."
+          : "⚠️ ALREADY CLAIMED TODAY\n\nYou have already claimed today's reward. Please come back after the countdown ends.",
         'warning'
       );
       return false;
@@ -131,23 +135,39 @@ export const useContract = () => {
     if (!currentAccount) return false;
     setIsLoading(true);
 
-    const success = await contractService.claimDailyReward(currentAccount.username, claimAmountRounded);
+    const res = await contractService.claimDailyReward(currentAccount.username, claimAmountRounded);
     setIsLoading(false);
 
-    if (success) {
+    if (res.success) {
+      const claimedVal = res.claimedAmount || claimAmountRounded;
+      const claimTx: Transaction = {
+        id: 'CLM-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+        type: 'reward',
+        amount: claimedVal,
+        date: Date.now(),
+        description: `Daily Reward (${(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}% Contract Yield)`,
+      };
+
+      // Add to rewardBalance, keep mainBalance UNCHANGED, do NOT reset pendingMiningReward
+      updateState(prev => ({
+        ...prev,
+        rewardBalance: res.rewardBalance ?? ((prev.rewardBalance ?? 0) + claimedVal),
+        totalEarned: res.totalEarned ?? (prev.totalEarned + claimedVal),
+        lastClaimTime: res.lastClaimTime ?? Date.now(),
+        transactions: [claimTx, ...(prev.transactions || [])],
+      }), true);
+
       triggerModal(
         language === 'id'
-          ? `✅ Berhasil mengklaim reward harian sebesar Rp ${claimAmountRounded.toLocaleString('id-ID')}!`
-          : `✅ Successfully claimed daily reward of Rp ${claimAmountRounded.toLocaleString('id-ID')}!`,
+          ? `✅ Berhasil mengklaim Daily Reward sebesar Rp ${claimedVal.toLocaleString('id-ID')} ke Saldo Reward Anda!`
+          : `✅ Successfully claimed Daily Reward of Rp ${claimedVal.toLocaleString('id-ID')} to your Reward Balance!`,
         'success'
       );
       await syncFromSupabase();
       return true;
     } else {
-      triggerModal(
-        language === 'id' ? '❌ Gagal mengklaim reward harian.' : '❌ Failed to claim daily reward.',
-        'danger'
-      );
+      const errMsg = res.error || (language === 'id' ? 'Gagal mengklaim Daily Reward.' : 'Failed to claim Daily Reward.');
+      triggerModal(`❌ ${errMsg}`, 'danger');
       return false;
     }
   };

@@ -3,7 +3,7 @@ import { useAppState } from '../AppContext';
 import { authService } from '../services/authService';
 import { TRANSLATIONS } from '../translations';
 import { AppState, UserAccount } from '../types';
-import { supabase } from '../supabase';
+import { supabase, hashPassword } from '../supabase';
 
 export const useAuth = () => {
   const {
@@ -37,93 +37,133 @@ export const useAuth = () => {
       return;
     }
 
-    const found = accounts.find(acc => acc.username.toLowerCase() === ident || acc.email.toLowerCase() === ident);
-    if (!found) {
+    let targetAccount = accounts.find(acc => acc.username.toLowerCase() === ident || acc.email.toLowerCase() === ident);
+    let dbUser: any = null;
+
+    if (!targetAccount || !targetAccount.password) {
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('*')
+          .or(`username.ilike.${ident},email.ilike.${ident}`)
+          .maybeSingle();
+        if (data) {
+          dbUser = data;
+        }
+      } catch (err) {
+        console.warn('Error querying user directly from Supabase for auth:', err);
+      }
+    }
+
+    if (!targetAccount && !dbUser) {
       triggerModal(language === 'id' ? '❌ Akun tidak ditemukan!' : '❌ Account not found!', 'danger');
       return;
     }
 
-    if (found.password !== pass) {
+    const hashedInput = await hashPassword(pass);
+    const expectedPassword = targetAccount?.password || dbUser?.password || '';
+
+    const passMatches = (expectedPassword === pass) || (expectedPassword === hashedInput);
+
+    if (!passMatches) {
       triggerModal(language === 'id' ? '❌ Kata sandi salah!' : '❌ Incorrect password!', 'danger');
       return;
     }
+
+    const userEmail = targetAccount?.email || dbUser?.email || '';
+    const userUsername = targetAccount?.username || dbUser?.username || '';
 
     setUnverifiedEmail(null);
     setResendStatus(null);
     setIsLoading(true);
 
     try {
-      const { data: signInData, error: signInError } = await authService.loginWithSupabase(found.email, found.password, false);
+      const loginPromise = authService.loginWithSupabase(userEmail, expectedPassword || pass, false);
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), 1000));
 
-      if (signInError) {
-        if (signInError.message?.toLowerCase().includes('email not confirmed') || signInError.message?.toLowerCase().includes('confirm your email')) {
-          setUnverifiedEmail(found.email);
-          triggerModal(
-            language === 'id'
-              ? '⚠️ Email Anda belum diverifikasi! Silakan periksa kotak masuk email Anda.'
-              : '⚠️ Your email is not verified yet! Please check your email inbox.',
-            'warning'
-          );
-          await authService.logout();
-          return;
-        }
+      const result: any = await Promise.race([loginPromise, timeoutPromise]);
 
-        if (signInError.message?.includes('Invalid login credentials') || signInError.message?.includes('User not found')) {
-          try {
-            const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://grok-gold-drab.vercel.app';
-            const { data: signUpData, error: signUpErr } = await authService.signUpWithSupabase(
-              found.email,
-              found.password,
-              found.username,
-              found.fullName,
-              currentOrigin
+      if (result && !result.timeout) {
+        const signInError = result.error;
+        if (signInError) {
+          if (signInError.message?.toLowerCase().includes('email not confirmed') || signInError.message?.toLowerCase().includes('confirm your email')) {
+            setUnverifiedEmail(userEmail);
+            triggerModal(
+              language === 'id'
+                ? '⚠️ Email Anda belum diverifikasi! Silakan periksa kotak masuk email Anda.'
+                : '⚠️ Your email is not verified yet! Please check your email inbox.',
+              'warning'
             );
-
-            if (signUpData?.user && !signUpData.user.email_confirmed_at && found.username.toLowerCase() !== 'admin') {
-              setUnverifiedEmail(found.email);
-              triggerModal(
-                language === 'id'
-                  ? '⚠️ Email verifikasi telah dikirim. Silakan verifikasi email Anda sebelum masuk.'
-                  : '⚠️ A verification email has been sent. Please verify your email before signing in.',
-                'warning'
-              );
-              await authService.logout();
-              return;
-            }
-
-            await authService.loginWithSupabase(found.email, found.password, false);
-          } catch (signUpErr) {
-            console.warn('Optional on-the-fly Supabase Auth signup failed:', signUpErr);
+            await authService.logout();
+            setIsLoading(false);
+            return;
           }
-        } else {
-          console.warn('Supabase Auth login warning:', signInError.message);
         }
       }
     } catch (authErr) {
-      console.warn('Supabase Auth execution failed:', authErr);
+      console.warn('Supabase Auth execution failed or timed out:', authErr);
     } finally {
       setIsLoading(false);
     }
 
-    setCurrentAccount(found);
+    const finalAccount = targetAccount || {
+      fullName: dbUser.full_name || '',
+      username: dbUser.username,
+      email: dbUser.email || '',
+      phone: dbUser.phone || '',
+      password: dbUser.password || pass,
+      referralCode: dbUser.referral_code || '',
+      invitedBy: dbUser.invited_by || null,
+      createdAt: Number(dbUser.created_at) || Date.now(),
+      settings: dbUser.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false },
+      state: {
+        mainBalance: Number(dbUser.main_balance) || 0,
+        activeContracts: Number(dbUser.active_contracts) || 0,
+        totalEarned: Number(dbUser.total_earned) || 0,
+        referralEarned: Number(dbUser.referral_earned) || 0,
+        rebateEarned: Number(dbUser.rebate_earned) || 0,
+        rewardBalance: Number(dbUser.reward_balance) || 0,
+        lastClaimTime: Number(dbUser.last_claim_time) || 0,
+        welcomeBonusClaimed: !!dbUser.welcome_bonus_claimed,
+        isLoggedIn: true,
+        username: dbUser.username,
+        holders: [],
+        goldProduction: 0,
+        cyclePercent: 0,
+        hasPurchased: (Number(dbUser.active_contracts) || 0) > 0,
+        profileImage: dbUser.profile_image || null,
+        transactions: [],
+        pendingMiningReward: Number(dbUser.pending_mining_reward) || 0,
+        todayProfit: 0,
+        totalProfit: Number(dbUser.total_earned) || 0
+      }
+    };
+
+    setCurrentAccount(finalAccount);
 
     if (rememberMe) {
-      localStorage.setItem('grockgold_logged_in_username_v4', found.username);
+      localStorage.setItem('grockgold_logged_in_username_v4', userUsername);
     } else {
       localStorage.removeItem('grockgold_logged_in_username_v4');
     }
 
+    triggerModal(
+      language === 'id'
+        ? `🎉 Selamat datang kembali, ${finalAccount.fullName || userUsername}!`
+        : `🎉 Welcome back, ${finalAccount.fullName || userUsername}!`,
+      'success'
+    );
+
     setState({
-      ...found.state,
+      ...finalAccount.state,
       isLoggedIn: true,
     });
 
-    if (found.settings?.language) {
-      setLanguage(found.settings.language);
+    if (finalAccount.settings?.language) {
+      setLanguage(finalAccount.settings.language);
     }
 
-    triggerModal(t.successLogin, 'success');
-    if (found.username.toLowerCase() === 'admin') {
+    if (finalAccount.username.toLowerCase() === 'admin') {
       window.history.pushState(null, '', '/admin');
       window.dispatchEvent(new Event('popstate'));
       setCurrentTab('admin');

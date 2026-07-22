@@ -67,12 +67,41 @@ export default function AdminRouteLoginForm({
 
       // Fetch the full UserAccount object mapped with properties
       const mappedAccounts = await fetchAccountsFromSupabase('admin');
-      const adminMapped = mappedAccounts?.find(acc => acc.username.toLowerCase() === 'admin');
+      let adminMapped = mappedAccounts?.find(acc => acc.username.toLowerCase() === 'admin');
 
-      if (!adminMapped) {
-        triggerModal(language === 'id' ? '❌ Gagal memetakan akun admin!' : '❌ Failed to map admin account!', 'danger');
-        setLoading(false);
-        return;
+      if (!adminMapped && found) {
+        adminMapped = {
+          fullName: found.full_name || 'System Admin',
+          username: found.username || 'admin',
+          email: found.email || 'admin@grockgold.com',
+          phone: found.phone || '',
+          password: found.password || pass,
+          referralCode: '',
+          invitedBy: null,
+          createdAt: Number(found.created_at) || Date.now(),
+          settings: found.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false },
+          state: {
+            mainBalance: Number(found.main_balance) || 0,
+            activeContracts: Number(found.active_contracts) || 0,
+            totalEarned: Number(found.total_earned) || 0,
+            referralEarned: Number(found.referral_earned) || 0,
+            rebateEarned: Number(found.rebate_earned) || 0,
+            rewardBalance: Number(found.reward_balance) || 0,
+            lastClaimTime: Number(found.last_claim_time) || 0,
+            welcomeBonusClaimed: !!found.welcome_bonus_claimed,
+            isLoggedIn: true,
+            username: found.username || 'admin',
+            holders: [],
+            goldProduction: 0,
+            cyclePercent: 0,
+            hasPurchased: (Number(found.active_contracts) || 0) > 0,
+            profileImage: found.profile_image || null,
+            transactions: [],
+            pendingMiningReward: Number(found.pending_mining_reward) || 0,
+            todayProfit: 0,
+            totalProfit: Number(found.total_earned) || 0
+          }
+        };
       }
 
       // Update states

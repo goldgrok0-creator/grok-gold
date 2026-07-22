@@ -15,7 +15,7 @@ export const contractService = {
     return await claimWelcomeBonusInSupabase(username);
   },
 
-  async claimDailyReward(username: string, amount: number): Promise<boolean> {
+  async claimDailyReward(username: string, amount: number) {
     return await claimDailyRewardInSupabase(username, amount);
   },
 

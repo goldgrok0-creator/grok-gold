@@ -4,7 +4,7 @@ import { WORLD_COUNTRIES, Country } from '../data/countries';
 
 interface SearchableCountrySelectProps {
   value: string;
-  onChange: (countryName: string) => void;
+  onChange: (countryName: string, countryObj?: Country) => void;
   label?: string;
 }
 
@@ -40,7 +40,7 @@ export const SearchableCountrySelect: React.FC<SearchableCountrySelectProps> = (
   }, [isOpen]);
 
   const handleSelect = (country: Country) => {
-    onChange(country.name);
+    onChange(country.name, country);
     setIsOpen(false);
   };
 

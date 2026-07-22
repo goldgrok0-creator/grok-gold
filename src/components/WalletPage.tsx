@@ -36,17 +36,21 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   const activeContractsCount = state.activeContracts || 0;
   const activeContractValue = activeContractsCount * CONFIG.PRICE_PER_UNIT;
 
-  const rawSum = (miningProfit || 0) + (referralReward || 0) + (bonusReward || 0) + (rebateReward || 0);
+  // Daily Reward calculated from active contract value (2%), or actual claimed reward transactions
+  const calculatedDailyReward = activeContractValue * CONFIG.DAILY_REWARD_PERCENT;
+  const dailyRewardAmount = (miningProfit && miningProfit > 0) ? miningProfit : calculatedDailyReward;
+
+  const rawSum = (dailyRewardAmount || 0) + (referralReward || 0) + (bonusReward || 0) + (rebateReward || 0);
 
   // Percentages
-  const miningPct = rawSum > 0 ? Math.round(((miningProfit || 0) / rawSum) * 100) : 19;
+  const miningPct = rawSum > 0 ? Math.round(((dailyRewardAmount || 0) / rawSum) * 100) : 2;
   const referralPct = rawSum > 0 ? Math.round(((referralReward || 0) / rawSum) * 100) : 81;
   const bonusPct = rawSum > 0 ? Math.round(((bonusReward || 0) / rawSum) * 100) : 0;
   const rebatePct = rawSum > 0 ? Math.round(((rebateReward || 0) / rawSum) * 100) : 0;
 
-  // Fractions for chart SVG ring (if rawSum === 0, display visual proportions matching design: 19%, 81%, 0.5%, 0.5%)
-  const fMining = rawSum > 0 ? (miningProfit / rawSum) : 0.19;
-  const fReferral = rawSum > 0 ? (referralReward / rawSum) : 0.79;
+  // Fractions for chart SVG ring
+  const fMining = rawSum > 0 ? (dailyRewardAmount / rawSum) : 0.02;
+  const fReferral = rawSum > 0 ? (referralReward / rawSum) : 0.81;
   const fBonus = rawSum > 0 ? (bonusReward / rawSum) : 0.01;
   const fRebate = rawSum > 0 ? (rebateReward / rawSum) : 0.01;
 
@@ -91,7 +95,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
           {t.totalBalance}
         </span>
         <div className="text-3xl font-black text-gradient-gold font-orbitron mb-5">
-          Rp {state.mainBalance.toLocaleString('id-ID')}
+          Rp {Math.floor((state.mainBalance ?? 0) + (state.rewardBalance ?? 0)).toLocaleString('id-ID')}
         </div>
 
         <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
@@ -104,7 +108,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
           <div className="text-right">
             <span className="text-[9px] text-slate-400 font-bold block mb-1">{t.rewardBalance}</span>
             <div className="text-sm font-black text-gold-primary">
-              Rp {((state.rewardBalance ?? 0) + (state.pendingMiningReward ?? 0)).toLocaleString('id-ID')}
+              Rp {Math.floor(state.rewardBalance ?? 0).toLocaleString('id-ID')}
             </div>
           </div>
         </div>
@@ -195,7 +199,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                     setSelectedCategory('mining');
                   }}
                 >
-                  <title>Mining Income: Rp {miningProfit.toLocaleString('id-ID')} ({miningPct}%)</title>
+                  <title>Daily Reward: Rp {dailyRewardAmount.toLocaleString('id-ID')} ({miningProfit > 0 && rawSum > 0 ? `${miningPct}%` : '2%'})</title>
                 </circle>
 
                 {/* Referral Segment (Emerald Green) */}
@@ -288,7 +292,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
           {/* 4 income rows stacked vertically */}
           <div className="space-y-2.5">
-            {/* Row 1: Mining Income */}
+            {/* Row 1: Daily Reward */}
             <button
               onClick={() => setSelectedCategory('mining')}
               className={`w-full flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border transition-all cursor-pointer text-left ${
@@ -302,16 +306,16 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   <Coins className="w-4 h-4 text-amber-400" />
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-sm">⛏️</span>
-                  <span className="text-xs font-bold text-white">Mining Income</span>
+                  <span className="text-sm">🎁</span>
+                  <span className="text-xs font-bold text-white">Daily Reward</span>
                 </div>
               </div>
               <div className="text-right flex items-center gap-3">
                 <div className="text-xs font-black text-white font-mono">
-                  Rp {miningProfit.toLocaleString('id-ID')}
+                  Rp {dailyRewardAmount.toLocaleString('id-ID')}
                 </div>
                 <span className="bg-[#2a1d08] border border-amber-500/50 text-amber-300 font-black text-[10px] px-2.5 py-1 rounded-full min-w-[42px] text-center shadow-sm">
-                  {miningPct}%
+                  {miningProfit > 0 && rawSum > 0 ? `${miningPct}%` : '2%'}
                 </span>
               </div>
             </button>
@@ -418,14 +422,14 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               <div className="flex items-center gap-2">
                 <span className="text-lg">
                   {selectedCategory === 'contracts' && '💎'}
-                  {selectedCategory === 'mining' && '⛏️'}
+                  {selectedCategory === 'mining' && '🎁'}
                   {selectedCategory === 'referral' && '👥'}
                   {selectedCategory === 'bonus' && '🎁'}
                   {selectedCategory === 'rebate' && '🔄'}
                 </span>
                 <h3 className="text-sm font-black text-white uppercase tracking-wider">
                   {selectedCategory === 'contracts' && (language === 'id' ? 'Detail Nilai Kontrak' : 'Active Contract Detail')}
-                  {selectedCategory === 'mining' && 'Mining Income Detail'}
+                  {selectedCategory === 'mining' && 'Daily Reward Detail'}
                   {selectedCategory === 'referral' && 'Referral Income Detail'}
                   {selectedCategory === 'bonus' && 'Bonus Income Detail'}
                   {selectedCategory === 'rebate' && 'Rebate Income Detail'}
@@ -447,7 +451,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                 <span className="text-sm font-black text-amber-300 font-mono">
                   Rp {
                     selectedCategory === 'contracts' ? activeContractValue.toLocaleString('id-ID') :
-                    selectedCategory === 'mining' ? miningProfit.toLocaleString('id-ID') :
+                    selectedCategory === 'mining' ? dailyRewardAmount.toLocaleString('id-ID') :
                     selectedCategory === 'referral' ? referralReward.toLocaleString('id-ID') :
                     selectedCategory === 'bonus' ? bonusReward.toLocaleString('id-ID') :
                     rebateReward.toLocaleString('id-ID')
@@ -457,12 +461,12 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
               <div className="bg-white/5 rounded-2xl p-3 border border-white/5 flex justify-between items-center">
                 <span className="text-xs text-slate-400 font-medium">
-                  {selectedCategory === 'contracts' ? (language === 'id' ? 'Unit Aktif' : 'Active Units') : 'Portfolio Share'}
+                  {selectedCategory === 'contracts' ? (language === 'id' ? 'Unit Aktif' : 'Active Units') : 'Rate / Share'}
                 </span>
                 <span className="text-xs font-black text-emerald-400 font-mono">
                   {
                     selectedCategory === 'contracts' ? `${activeContractsCount} ${language === 'id' ? 'Unit Kontrak' : 'Units'}` :
-                    selectedCategory === 'mining' ? `${miningPct}%` :
+                    selectedCategory === 'mining' ? (miningProfit > 0 && rawSum > 0 ? `${miningPct}%` : '2%') :
                     selectedCategory === 'referral' ? `${referralPct}%` :
                     selectedCategory === 'bonus' ? `${bonusPct}%` :
                     `${rebatePct}%`
@@ -472,7 +476,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
 
               <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-2xl text-[11px] text-slate-300 leading-relaxed">
                 {selectedCategory === 'contracts' && (language === 'id' ? `Total nilai deposit dan modal kerja dari ${activeContractsCount} unit server pertambangan GPU aktif Anda (${activeContractsCount} x Rp ${CONFIG.PRICE_PER_UNIT.toLocaleString('id-ID')}).` : `Total active deposit value from ${activeContractsCount} GPU server mining units (${activeContractsCount} x Rp ${CONFIG.PRICE_PER_UNIT.toLocaleString('id-ID')}).`)}
-                {selectedCategory === 'mining' && (language === 'id' ? 'Hasil klaim profit harian (2% per klaim) dari kontrak server GPU pertambangan aktif Anda.' : 'Daily yield claim profit (2% per claim) from your active GPU mining server contracts.')}
+                {selectedCategory === 'mining' && (language === 'id' ? 'Hasil klaim Daily Reward (2% per klaim) dihitung dari total nilai kontrak aktif Anda.' : 'Daily Reward yield claim profit (2% per claim) calculated from your active contract value.')}
                 {selectedCategory === 'referral' && (language === 'id' ? 'Komisi bonus dari tim dan teman yang Anda undang ke platform.' : 'Commission rewards from team members and invited friends on the platform.')}
                 {selectedCategory === 'bonus' && (language === 'id' ? 'Bonus promosi khusus, milestone pencapaian, dan event spesial.' : 'Special promotional bonuses, achievement milestones, and event rewards.')}
                 {selectedCategory === 'rebate' && (language === 'id' ? 'Rebate cash-back otomatis dari setiap pembelian unit server.' : 'Automatic cashback rebate on every server unit purchase.')}
