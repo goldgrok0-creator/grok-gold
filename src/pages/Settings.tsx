@@ -195,8 +195,8 @@ export const SettingsPage: React.FC = () => {
         } else if (notifRes && notifRes.error) {
           triggerModal(
             language === 'id'
-              ? `✅ Telegram Chat ID Berhasil Disimpan & Terhubung!\n\n⚠️ Catatan Pengiriman Bot: ${notifRes.error}\n\nLangkah: Buka bot Telegram @${botInfo?.bot?.username || 'trading_sinyal_pro_bot'} dan tekan /start agar bot dapat mengirim pesan.`
-              : `✅ Telegram Chat ID Linked & Connected!\n\n⚠️ Bot Note: ${notifRes.error}\n\nStep: Open Telegram bot @${botInfo?.bot?.username || 'trading_sinyal_pro_bot'} and press /start so the bot can send messages.`,
+              ? `✅ Telegram Chat ID Berhasil Disimpan & Terhubung!\n\n⚠️ Catatan Pengiriman Bot: ${notifRes.error}\n\nLangkah: Buka bot Telegram @${botInfo?.bot?.username || 'GrockGoldMiningBot'} dan tekan /start agar bot dapat mengirim pesan.`
+              : `✅ Telegram Chat ID Linked & Connected!\n\n⚠️ Bot Note: ${notifRes.error}\n\nStep: Open Telegram bot @${botInfo?.bot?.username || 'GrockGoldMiningBot'} and press /start so the bot can send messages.`,
             'info'
           );
         } else {
@@ -242,11 +242,11 @@ export const SettingsPage: React.FC = () => {
           'success'
         );
       } else if (res.error) {
-        triggerModal(`❌ Gagal mengirim: ${res.error}\n\nPastikan Anda sudah buka bot @trading_sinyal_pro_bot dan menekan /start.`, 'error');
+        triggerModal(`❌ Gagal mengirim: ${res.error}\n\nPastikan Anda sudah buka bot @GrockGoldMiningBot dan menekan /start.`, 'error');
       } else if (res.skipped) {
         triggerModal(`⚠️ ${res.reason || 'Notifikasi dilewati.'}`, 'warning');
       } else {
-        triggerModal('⚠️ Pesan tidak dapat terkirim. Pastikan Anda sudah tekan /start pada Bot Telegram @trading_sinyal_pro_bot.', 'warning');
+        triggerModal('⚠️ Pesan tidak dapat terkirim. Pastikan Anda sudah tekan /start pada Bot Telegram @GrockGoldMiningBot.', 'warning');
       }
     } catch (err: any) {
       console.error('Test Telegram error:', err);
@@ -380,11 +380,11 @@ export const SettingsPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span className="text-slate-300">
-              Bot Resmi GROCKGOLD: <strong className="text-cyan-300">@{botInfo?.bot?.username || 'trading_sinyal_pro_bot'}</strong>
+              Bot Resmi GROCKGOLD: <strong className="text-cyan-300">@{botInfo?.bot?.username || 'GrockGoldMiningBot'}</strong>
             </span>
           </div>
           <a
-            href={`https://t.me/${botInfo?.bot?.username || 'trading_sinyal_pro_bot'}`}
+            href={`https://t.me/${botInfo?.bot?.username || 'GrockGoldMiningBot'}`}
             target="_blank"
             rel="noreferrer"
             className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-black bg-cyan-400 hover:bg-cyan-300 rounded-xl transition flex items-center gap-1 shadow-md"
@@ -430,16 +430,16 @@ export const SettingsPage: React.FC = () => {
             <ol className="list-decimal list-inside space-y-1 text-slate-300">
               <li>Dapatkan Chat ID dari <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-cyan-300 underline">@userinfobot</a> dan masukkan pada kolom di atas.</li>
               <li>Klik <strong className="text-white">Simpan & Hubungkan</strong>.</li>
-              <li>Buka Bot Resmi <strong className="text-cyan-300">@{botInfo?.bot?.username || 'trading_sinyal_pro_bot'}</strong> dan tekan tombol <strong className="text-white">/start</strong> agar bot diizinkan mengirim pesan ke Telegram Anda.</li>
+              <li>Buka Bot Resmi <strong className="text-cyan-300">@{botInfo?.bot?.username || 'GrockGoldMiningBot'}</strong> dan tekan tombol <strong className="text-white">/start</strong> agar bot diizinkan mengirim pesan ke Telegram Anda.</li>
             </ol>
             <div className="pt-2">
               <a
-                href={`https://t.me/${botInfo?.bot?.username || 'trading_sinyal_pro_bot'}`}
+                href={`https://t.me/${botInfo?.bot?.username || 'GrockGoldMiningBot'}`}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold hover:bg-cyan-500/30 transition text-[10px]"
               >
-                Tekan /start di @{botInfo?.bot?.username || 'trading_sinyal_pro_bot'} <ExternalLink className="w-3 h-3" />
+                Tekan /start di @{botInfo?.bot?.username || 'GrockGoldMiningBot'} <ExternalLink className="w-3 h-3" />
               </a>
             </div>
           </div>
@@ -485,7 +485,7 @@ export const SettingsPage: React.FC = () => {
                 <span className="text-xl font-black text-yellow-300 tracking-widest font-mono">{linkingCode}</span>
               </div>
               <a
-                href={`https://t.me/${botInfo?.bot?.username || 'trading_sinyal_pro_bot'}?start=${linkingCode}`}
+                href={`https://t.me/${botInfo?.bot?.username || 'GrockGoldMiningBot'}?start=${linkingCode}`}
                 target="_blank"
                 rel="noreferrer"
                 className="bg-amber-400 text-black font-black text-xs px-3 py-2 rounded-xl shadow hover:bg-amber-300 transition flex items-center gap-1"
@@ -543,7 +543,7 @@ export const SettingsPage: React.FC = () => {
                       <div className="font-bold text-white flex items-center gap-1">
                         GROCKGOLD Bot <CheckCircle2 className="w-3 h-3 text-cyan-400" />
                       </div>
-                      <div className="text-[9px] text-slate-400">@{botInfo?.bot?.username || 'trading_sinyal_pro_bot'}</div>
+                      <div className="text-[9px] text-slate-400">@{botInfo?.bot?.username || 'GrockGoldMiningBot'}</div>
                     </div>
                   </div>
                   <button

@@ -344,7 +344,7 @@ app.get("/api/telegram/bot-info", async (req, res) => {
         configured: true,
         bot: {
           id: 0,
-          username: "trading_sinyal_pro_bot",
+          username: "GrockGoldMiningBot",
           firstName: "GROCKGOLD Bot Resmi",
         }
       });
@@ -358,7 +358,7 @@ app.get("/api/telegram/bot-info", async (req, res) => {
         configured: true,
         bot: {
           id: data.result.id,
-          username: data.result.username || "trading_sinyal_pro_bot",
+          username: data.result.username || "GrockGoldMiningBot",
           firstName: data.result.first_name || "GROCKGOLD Bot Resmi",
         }
       });
@@ -367,7 +367,7 @@ app.get("/api/telegram/bot-info", async (req, res) => {
         configured: true,
         bot: {
           id: 0,
-          username: "trading_sinyal_pro_bot",
+          username: "GrockGoldMiningBot",
           firstName: "GROCKGOLD Bot Resmi",
         }
       });
@@ -378,7 +378,7 @@ app.get("/api/telegram/bot-info", async (req, res) => {
       configured: true,
       bot: {
         id: 0,
-        username: "trading_sinyal_pro_bot",
+        username: "GrockGoldMiningBot",
         firstName: "GROCKGOLD Bot Resmi",
       }
     });
@@ -1607,7 +1607,7 @@ app.post("/api/telegram/send-notification", async (req, res) => {
       console.warn("Telegram API delivery failure:", tgData);
       return res.json({
         success: false,
-        error: tgData.description || "Telegram API menolak pengiriman pesan. Pastikan Chat ID benar dan Anda telah menekan /start pada bot @trading_sinyal_pro_bot."
+        error: tgData.description || "Telegram API menolak pengiriman pesan. Pastikan Chat ID benar dan Anda telah menekan /start pada bot @GrockGoldMiningBot."
       });
     }
 
