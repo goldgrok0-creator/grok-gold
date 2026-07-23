@@ -231,6 +231,29 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let loggedInUsername = localStorage.getItem('grockgold_logged_in_username_v4');
     const isBypassed = localStorage.getItem('grockgold_bypass_verification_v4') === 'true';
 
+    // Telegram Mini App Auto-Login Check
+    if ((window as any).Telegram?.WebApp) {
+      try {
+        (window as any).Telegram.WebApp.expand?.();
+        const initData = (window as any).Telegram.WebApp.initData;
+        if (initData) {
+          const authRes = await fetch('/api/telegram/webapp-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initData })
+          });
+          const authData = await authRes.json();
+          if (authData.success && authData.authenticated && authData.user?.username) {
+            loggedInUsername = authData.user.username;
+            localStorage.setItem('grockgold_logged_in_username_v4', loggedInUsername);
+            console.log(`✅ Auto-logged in via Telegram Mini App as @${loggedInUsername}`);
+          }
+        }
+      } catch (tgAuthErr) {
+        console.warn('Telegram Mini App auto-login check failed:', tgAuthErr);
+      }
+    }
+
     try {
       const config = await fetchGlobalConfig().catch(() => null);
       if (config) {
@@ -268,13 +291,14 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
 
-      const supabaseAccounts = await fetchAccountsFromSupabase(loggedInUsername || undefined).catch(() => null);
+      const supabaseAccounts = await fetchAccountsFromSupabase(loggedInUsername || undefined).catch((err) => {
+        console.error('Failed to fetch from Supabase:', err);
+        return null;
+      });
+
       if (supabaseAccounts && supabaseAccounts.length > 0) {
         setSupabaseError(null);
         setAccounts(supabaseAccounts);
-        const sanitizedAccounts = supabaseAccounts.map(({ password, ...rest }) => rest);
-        localStorage.setItem('grockgold_accounts_v4', JSON.stringify(sanitizedAccounts));
-        sessionStorage.setItem('grockgold_accounts_cache_v4', JSON.stringify(sanitizedAccounts));
 
         if (loggedInUsername) {
           const found = supabaseAccounts.find(acc => acc.username.toLowerCase() === loggedInUsername.toLowerCase());
@@ -291,82 +315,11 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
         }
       } else {
-        throw new Error('Database returned empty or null user records.');
+        setSupabaseError('Tidak dapat terhubung ke server. Silakan coba lagi.');
       }
     } catch (err: any) {
-      console.warn('Supabase offline or failed to sync. Using local storage fallback.', err);
-      setSupabaseError(null);
-
-      // Local storage fallback
-      const cached = localStorage.getItem('grockgold_accounts_v4');
-      let fallbackAccounts: UserAccount[] = [];
-      if (cached) {
-        try {
-          fallbackAccounts = JSON.parse(cached);
-        } catch (e) {
-          console.warn('Failed to parse cached accounts', e);
-        }
-      }
-
-      // If no local accounts exist, seed default offline Admin
-      if (!fallbackAccounts || fallbackAccounts.length === 0) {
-        fallbackAccounts = [
-          {
-            username: 'admin',
-            fullName: 'System Administrator',
-            email: 'admin@grockgold.com',
-            phone: '+6281234567890',
-            password: 'admin123',
-            referralCode: 'ADMIN_OFFLINE',
-            invitedBy: null,
-            createdAt: Date.now(),
-            settings: {
-              language: 'id',
-              notificationsEnabled: true,
-              autoReinvest: false,
-            },
-            state: {
-              mainBalance: 1000000000,
-              activeContracts: 0,
-              totalEarned: 0,
-              referralEarned: 0,
-              rebateEarned: 0,
-              lastClaimTime: 0,
-              welcomeBonusClaimed: true,
-              isLoggedIn: false,
-              username: 'admin',
-              holders: [],
-              goldProduction: 0,
-              cyclePercent: 0,
-              hasPurchased: false,
-              profileImage: null,
-              transactions: [],
-              pendingMiningReward: 0,
-              todayProfit: 0,
-              totalProfit: 0,
-              systemErrors: INITIAL_SYSTEM_ERRORS,
-            },
-          },
-        ];
-        localStorage.setItem('grockgold_accounts_v4', JSON.stringify(fallbackAccounts));
-      }
-
-      setAccounts(fallbackAccounts);
-
-      if (loggedInUsername) {
-        const found = fallbackAccounts.find(acc => acc.username.toLowerCase() === loggedInUsername.toLowerCase());
-        if (found) {
-          setCurrentAccount(found);
-          setState(prev => ({
-            ...prev,
-            ...found.state,
-            isLoggedIn: true,
-          }));
-          if (found.settings?.language) {
-            setLanguage(found.settings.language);
-          }
-        }
-      }
+      console.error('Supabase sync error:', err);
+      setSupabaseError('Tidak dapat terhubung ke server. Silakan coba lagi.');
     } finally {
       setIsSyncing(false);
     }
@@ -432,7 +385,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!latestState.isLoggedIn || !currentAccount) return;
     try {
       setAccounts(prevAccounts => {
-        const updatedAccounts = prevAccounts.map(acc => {
+        return prevAccounts.map(acc => {
           if (acc.username.toLowerCase() === currentAccount.username.toLowerCase()) {
             const updatedAcc = {
               ...acc,
@@ -447,23 +400,20 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
           return acc;
         });
-        localStorage.setItem('grockgold_accounts_v4', JSON.stringify(updatedAccounts));
-        return updatedAccounts;
       });
-      localStorage.setItem('grockgold_state_v4', JSON.stringify(latestState));
     } catch (e) {
-      console.error('Error in immediate localStorage save', e);
+      console.error('Error in immediate Supabase save', e);
     }
   };
 
-  // Debounced Persistence to LocalStorage / Supabase
+  // Debounced Persistence to Supabase
   useEffect(() => {
     if (!state.isLoggedIn || !currentAccount) return;
 
     const handler = setTimeout(() => {
       try {
         setAccounts(prevAccounts => {
-          const updatedAccounts = prevAccounts.map(acc => {
+          return prevAccounts.map(acc => {
             if (acc.username.toLowerCase() === currentAccount.username.toLowerCase()) {
               const updatedAcc = {
                 ...acc,
@@ -478,12 +428,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
             return acc;
           });
-          localStorage.setItem('grockgold_accounts_v4', JSON.stringify(updatedAccounts));
-          return updatedAccounts;
         });
-        localStorage.setItem('grockgold_state_v4', JSON.stringify(state));
       } catch (e) {
-        console.error('Error saving state to localStorage', e);
+        console.error('Error saving state to Supabase', e);
       }
     }, 4000);
 

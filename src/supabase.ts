@@ -64,8 +64,8 @@ const SUPABASE_ANON_KEY = getSupabaseKey(SUPABASE_URL);
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Flag to track if we need to fall back to Local Storage database due to Supabase connection/table errors
-export let isSupabaseOffline = false;
+// Flag to track Supabase connection (always false as Supabase is the sole primary database)
+export const isSupabaseOffline = false;
 
 const SPIN_ITEMS = [
   { label: 'Rp 5.000', color: '#7209b7', value: 5000, type: 'cash' },
@@ -79,122 +79,11 @@ const SPIN_ITEMS = [
 ];
 
 export function getLocalAccounts(): UserAccount[] {
-  try {
-    const data = localStorage.getItem('grockgold_local_db_accounts');
-    if (data) {
-      const parsed = JSON.parse(data);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to parse local db accounts:', e);
-  }
-
-  // Seed default admin and user
-  const admin: UserAccount = {
-    fullName: 'System Administrator',
-    username: 'admin',
-    email: 'admin@grockgold.com',
-    phone: '+6281234567890',
-    role: 'admin',
-    password: 'fb_a559ea12' /* admin123 */,
-    referralCode: '',
-    invitedBy: null,
-    createdAt: Date.now() - 30 * 24 * 3600 * 1000,
-    settings: {
-      language: 'id',
-      notificationsEnabled: true,
-      autoReinvest: false,
-    },
-    state: {
-      mainBalance: 1000000000,
-      activeContracts: 0,
-      totalEarned: 0,
-      referralEarned: 0,
-      rebateEarned: 0,
-      lastClaimTime: 0,
-      welcomeBonusClaimed: true,
-      isLoggedIn: false,
-      username: 'admin',
-      holders: [],
-      goldProduction: 0,
-      cyclePercent: 0,
-      hasPurchased: false,
-      profileImage: null,
-      transactions: [],
-      pendingMiningReward: 0,
-      todayProfit: 0,
-      totalProfit: 0,
-    }
-  };
-
-  const defaultUser: UserAccount = {
-    fullName: 'Grock Gold Member',
-    username: 'member1',
-    email: 'member1@grockgold.com',
-    phone: '+628111222333',
-    role: 'user',
-    password: 'fb_9e000000' /* password123 */,
-    referralCode: 'GOLD1',
-    invitedBy: null,
-    createdAt: Date.now() - 5 * 24 * 3600 * 1000,
-    settings: {
-      language: 'id',
-      notificationsEnabled: true,
-      autoReinvest: false,
-    },
-    state: {
-      mainBalance: 2000000,
-      activeContracts: 1,
-      totalEarned: 450000,
-      referralEarned: 180000,
-      rebateEarned: 50000,
-      lastClaimTime: Date.now() - 12 * 3600 * 1000,
-      welcomeBonusClaimed: true,
-      isLoggedIn: false,
-      username: 'member1',
-      holders: [],
-      goldProduction: 10,
-      cyclePercent: 50,
-      hasPurchased: true,
-      profileImage: null,
-      transactions: [
-        {
-          id: 'welcome-bonus-1',
-          type: 'welcome_bonus',
-          amount: 1800000,
-          date: Date.now() - 5 * 24 * 3600 * 1000,
-          description: 'Welcome Bonus GrockGold',
-          status: 'approved'
-        },
-        {
-          id: 'purchase-1',
-          type: 'purchase',
-          amount: 180000,
-          date: Date.now() - 4 * 24 * 3600 * 1000,
-          description: 'Aktivasi Kontrak Tambang Emas (1 Unit)',
-          status: 'approved'
-        }
-      ],
-      pendingMiningReward: 25000,
-      todayProfit: 15000,
-      totalProfit: 450000
-    }
-  };
-
-  const accounts = [admin, defaultUser];
-  saveLocalAccounts(accounts);
-  return accounts;
+  return [];
 }
 
 export function saveLocalAccounts(accounts: UserAccount[]) {
-  try {
-    const sanitized = accounts.map(({ password, ...rest }) => rest);
-    localStorage.setItem('grockgold_local_db_accounts', JSON.stringify(sanitized));
-  } catch (e) {
-    console.error('Failed to save local db accounts:', e);
-  }
+  // Disabled: Supabase is the sole source of truth
 }
 
 // =========================================================================
@@ -424,22 +313,12 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs = 2000): Promise<T> {
 // =========================================================================
 
 export async function seedDefaultAdminIfNeeded(): Promise<void> {
-  if (isSupabaseOffline) return;
   try {
-    const { data, error } = await withTimeout(
-      supabase
-        .from('users')
-        .select('username')
-        .eq('username', 'admin')
-        .single(),
-      1500
-    );
-
-    if (error) {
-      console.warn('Supabase not available during admin seed check, switching to offline local storage database.');
-      isSupabaseOffline = true;
-      return;
-    }
+    const { data } = await supabase
+      .from('users')
+      .select('username')
+      .eq('username', 'admin')
+      .single();
 
     if (!data) {
       const adminPayload = {
@@ -450,7 +329,7 @@ export async function seedDefaultAdminIfNeeded(): Promise<void> {
         password: 'admin123',
         referral_code: '',
         invited_by: null,
-        main_balance: 1000000000, // Large starting balance for Admin treasury
+        main_balance: 1000000000,
         active_contracts: 0,
         total_earned: 0,
         referral_earned: 0,
@@ -467,12 +346,11 @@ export async function seedDefaultAdminIfNeeded(): Promise<void> {
         }
       };
 
-      await withTimeout(supabase.from('users').insert(adminPayload), 1500);
+      await supabase.from('users').insert(adminPayload);
       console.log('Seeded default admin successfully.');
     }
   } catch (err) {
-    console.warn('Error seeding default admin, switching to offline local storage database:', err);
-    isSupabaseOffline = true;
+    console.warn('Admin check warning:', err);
   }
 }
 
@@ -481,39 +359,24 @@ export async function seedDefaultAdminIfNeeded(): Promise<void> {
 // =========================================================================
 
 export async function fetchAccountsFromSupabase(targetUsername?: string): Promise<UserAccount[] | null> {
-  if (isSupabaseOffline) {
-    return getLocalAccounts();
-  }
   try {
-    // Seed default admin first
-    await seedDefaultAdminIfNeeded();
-
-    if (isSupabaseOffline) {
-      return getLocalAccounts();
-    }
-
     let usersQuery = supabase.from('users').select('*');
     let depositsQuery = supabase.from('deposits').select('*');
     let withdrawalsQuery = supabase.from('withdrawals').select('*');
     let contractsQuery = supabase.from('contracts').select('*');
     let transactionsQuery = supabase.from('transactions').select('*');
 
-    // Fetch all records with a 2000ms max timeout to guarantee immediate response speed
-    const [usersRes, depositsRes, withdrawalsRes, contractsRes, transactionsRes] = await withTimeout(
-      Promise.all([
-        usersQuery,
-        depositsQuery,
-        withdrawalsQuery,
-        contractsQuery,
-        transactionsQuery
-      ]),
-      2000
-    );
+    const [usersRes, depositsRes, withdrawalsRes, contractsRes, transactionsRes] = await Promise.all([
+      usersQuery,
+      depositsQuery,
+      withdrawalsQuery,
+      contractsQuery,
+      transactionsQuery
+    ]);
 
     if (usersRes.error) {
-      console.warn('Supabase usersQuery error, falling back to local storage database:', usersRes.error);
-      isSupabaseOffline = true;
-      return getLocalAccounts();
+      console.error('Supabase usersQuery error:', usersRes.error);
+      return null;
     }
     if (depositsRes.error) {
       console.error('Supabase depositsQuery error:', depositsRes.error);
@@ -662,10 +525,12 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
         referralCode: user.username.toLowerCase() === 'admin' ? '' : (user.referral_code || ''),
         invitedBy: user.invited_by || null,
         createdAt: Number(user.created_at) || Date.now(),
-        settings: user.settings || {
+        settings: {
           language: 'id',
           notificationsEnabled: true,
-          autoReinvest: false
+          autoReinvest: false,
+          ...(user.settings || {}),
+          telegramId: user.telegram_id || user.settings?.telegramId || ''
         },
         state: {
           mainBalance: Number(user.main_balance) || 0,
@@ -693,9 +558,8 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
       };
     });
   } catch (err) {
-    console.warn('Error in fetchAccountsFromSupabase, falling back to robust Local Storage database state:', err);
-    isSupabaseOffline = true;
-    return getLocalAccounts();
+    console.error('Error in fetchAccountsFromSupabase:', err);
+    return null;
   }
 }
 
@@ -705,14 +569,6 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
 
 // 1. Create User (Registration)
 export async function registerUserInSupabase(account: UserAccount): Promise<boolean> {
-  if (isSupabaseOffline) {
-    const accounts = getLocalAccounts();
-    const exists = accounts.some(a => a.username.toLowerCase() === account.username.toLowerCase());
-    if (exists) return false;
-    accounts.push(account);
-    saveLocalAccounts(accounts);
-    return true;
-  }
   try {
     const payload = {
       username: account.username,
@@ -774,26 +630,6 @@ export async function createDepositInSupabase(
   paymentMethod: string,
   proofImage: string | null
 ): Promise<boolean> {
-  if (isSupabaseOffline) {
-    const accounts = getLocalAccounts();
-    const idx = accounts.findIndex(a => a.username.toLowerCase() === username.toLowerCase());
-    if (idx !== -1) {
-      if (!accounts[idx].state.transactions) accounts[idx].state.transactions = [];
-      accounts[idx].state.transactions.unshift({
-        id,
-        type: 'deposit',
-        amount,
-        date: Date.now(),
-        description: '⏳ Deposit (Pending)',
-        proofImage,
-        status: 'pending',
-        paymentMethod
-      });
-      saveLocalAccounts(accounts);
-      return true;
-    }
-    return false;
-  }
   try {
     // Mandatory backend validation: prevent any deposit from being created if proofImage is empty
     if (!proofImage || proofImage.trim() === '') {
@@ -812,30 +648,11 @@ export async function createDepositInSupabase(
       created_at: Date.now()
     };
 
-    const { error } = await withTimeout(
-      supabase.from('deposits').insert(depositPayload),
-      3000
-    ).catch(err => ({ error: err }));
+    const { error } = await supabase.from('deposits').insert(depositPayload);
 
     if (error) {
-      console.warn('Error inserting pending deposit payload into Supabase, saving to local database fallback:', error);
-      const accounts = getLocalAccounts();
-      const idx = accounts.findIndex(a => a.username.toLowerCase() === username.toLowerCase());
-      if (idx !== -1) {
-        if (!accounts[idx].state.transactions) accounts[idx].state.transactions = [];
-        accounts[idx].state.transactions.unshift({
-          id,
-          type: 'deposit',
-          amount,
-          date: Date.now(),
-          description: '⏳ Deposit (Pending)',
-          proofImage,
-          status: 'pending',
-          paymentMethod
-        });
-        saveLocalAccounts(accounts);
-      }
-      return true;
+      console.error('Error inserting pending deposit payload into Supabase:', error);
+      return false;
     }
 
     telegramService.sendNotification({
@@ -863,27 +680,6 @@ export async function createWithdrawalInSupabase(
   accountNumber: string,
   accountName: string
 ): Promise<boolean> {
-  if (isSupabaseOffline) {
-    const accounts = getLocalAccounts();
-    const idx = accounts.findIndex(a => a.username.toLowerCase() === username.toLowerCase());
-    if (idx !== -1) {
-      const balance = accounts[idx].state.mainBalance;
-      if (balance < amount) return false;
-      accounts[idx].state.mainBalance -= amount;
-      if (!accounts[idx].state.transactions) accounts[idx].state.transactions = [];
-      accounts[idx].state.transactions.unshift({
-        id,
-        type: 'withdraw',
-        amount,
-        date: Date.now(),
-        description: '⏳ Penarikan (Pending)',
-        status: 'pending'
-      });
-      saveLocalAccounts(accounts);
-      return true;
-    }
-    return false;
-  }
   try {
     if (amount <= 0) {
       console.warn(`Invalid withdrawal amount: ${amount}`);
@@ -939,16 +735,6 @@ export async function createWithdrawalInSupabase(
 
 // 4. Update Profile Image
 export async function updateProfileImageInSupabase(username: string, imageUrl: string | null): Promise<boolean> {
-  if (isSupabaseOffline) {
-    const accounts = getLocalAccounts();
-    const idx = accounts.findIndex(a => a.username.toLowerCase() === username.toLowerCase());
-    if (idx !== -1) {
-      accounts[idx].state.profileImage = imageUrl;
-      saveLocalAccounts(accounts);
-      return true;
-    }
-    return false;
-  }
   try {
     const { error } = await supabase
       .from('users')
@@ -964,21 +750,24 @@ export async function updateProfileImageInSupabase(username: string, imageUrl: s
 
 // 5. Update settings in Supabase
 export async function updateUserSettingsInSupabase(username: string, settings: any): Promise<boolean> {
-  if (isSupabaseOffline) {
-    const accounts = getLocalAccounts();
-    const idx = accounts.findIndex(a => a.username.toLowerCase() === username.toLowerCase());
-    if (idx !== -1) {
-      accounts[idx].settings = { ...accounts[idx].settings, ...settings };
-      saveLocalAccounts(accounts);
-      return true;
-    }
-    return false;
-  }
   try {
-    const { error } = await supabase
+    const updatePayload: any = { settings };
+    if (settings && settings.telegramId !== undefined) {
+      updatePayload.telegram_id = settings.telegramId || null;
+    }
+
+    let { error } = await supabase
       .from('users')
-      .update({ settings })
-      .eq('username', username);
+      .update(updatePayload)
+      .ilike('username', username);
+
+    if (error && (error.code === 'PGRST204' || error.message?.includes('telegram_id'))) {
+      const fallbackRes = await supabase
+        .from('users')
+        .update({ settings })
+        .ilike('username', username);
+      error = fallbackRes.error;
+    }
 
     return !error;
   } catch (err) {
@@ -987,18 +776,53 @@ export async function updateUserSettingsInSupabase(username: string, settings: a
   }
 }
 
+// 5b. Save Telegram Chat ID with explicit detailed error return
+export async function saveTelegramChatIdToSupabase(
+  username: string,
+  telegramId: string,
+  settings: any
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const updatedSettings = {
+      ...(settings || {}),
+      telegramId: telegramId
+    };
+
+    const updatePayload: any = {
+      telegram_id: telegramId || null,
+      settings: updatedSettings
+    };
+
+    let { error } = await supabase
+      .from('users')
+      .update(updatePayload)
+      .ilike('username', username);
+
+    // If telegram_id column missing from schema cache (PGRST204), fallback to updating settings JSON column
+    if (error && (error.code === 'PGRST204' || error.message?.includes('telegram_id'))) {
+      const fallbackRes = await supabase
+        .from('users')
+        .update({
+          settings: updatedSettings
+        })
+        .ilike('username', username);
+      error = fallbackRes.error;
+    }
+
+    if (error) {
+      console.error('Supabase error saving Telegram Chat ID:', error);
+      return { success: false, error: error.message || error.details || 'Database update failed' };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('saveTelegramChatIdToSupabase crash:', err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
 // 6. Update general appState in Supabase (For users & admin profile)
 export async function saveAccountToSupabase(account: UserAccount): Promise<boolean> {
-  if (isSupabaseOffline) {
-    const accounts = getLocalAccounts();
-    const idx = accounts.findIndex(a => a.username.toLowerCase() === account.username.toLowerCase());
-    if (idx !== -1) {
-      accounts[idx] = account;
-      saveLocalAccounts(accounts);
-      return true;
-    }
-    return false;
-  }
   try {
     const payload: any = {
       full_name: account.fullName,
@@ -1019,14 +843,27 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
       settings: account.settings
     };
 
+    if (account.settings?.telegramId) {
+      payload.telegram_id = account.settings.telegramId;
+    }
+
     if (account.password && account.password.trim() !== '') {
       payload.password = account.password;
     }
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from('users')
       .update(payload)
-      .eq('username', account.username);
+      .ilike('username', account.username);
+
+    if (error && (error.code === 'PGRST204' || error.message?.includes('telegram_id'))) {
+      delete payload.telegram_id;
+      const fallbackRes = await supabase
+        .from('users')
+        .update(payload)
+        .ilike('username', account.username);
+      error = fallbackRes.error;
+    }
 
     if (error) {
       console.warn('Supabase update user error:', error.message);

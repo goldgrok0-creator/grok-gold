@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ChevronLeft, Settings, Send, CheckCircle2, HelpCircle, Shield, Bell, CreditCard, Wallet, Gift, ExternalLink, Loader2 } from 'lucide-react';
 import { useAppState } from '../AppContext';
-import { saveAccountToSupabase, updateUserSettingsInSupabase } from '../supabase';
+import { saveAccountToSupabase, updateUserSettingsInSupabase, saveTelegramChatIdToSupabase, fetchAccountsFromSupabase } from '../supabase';
 import { UserAccount, CONFIG } from '../types';
 import { TRANSLATIONS } from '../translations';
 import { telegramService } from '../services/telegramService';
@@ -27,6 +27,70 @@ export const SettingsPage: React.FC = () => {
   const [isSavingTg, setIsSavingTg] = useState(false);
   const [isTestingTg, setIsTestingTg] = useState(false);
 
+  // Bot Menu Interactive Tester state
+  const [showBotPreview, setShowBotPreview] = useState(false);
+  const [botMessage, setBotMessage] = useState<string>('');
+  const [botKeyboard, setBotKeyboard] = useState<{ text: string; callback_data: string }[][]>([]);
+  const [isLoadingBotInteract, setIsLoadingBotInteract] = useState(false);
+
+  // One-time linking code state
+  const [linkingCode, setLinkingCode] = useState<string | null>(null);
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false);
+
+  const handleGenerateLinkCode = async () => {
+    if (!currentAccount?.username) return;
+    setIsGeneratingCode(true);
+    try {
+      const res = await telegramService.generateLinkingCode(currentAccount.username);
+      if (res.success && res.code) {
+        setLinkingCode(res.code);
+        triggerModal(`Kode Verifikasi Bot 6-Digit Berhasil Dibuat: ${res.code}. Masukkan di Telegram Bot dengan mengetik /link ${res.code}`, 'success');
+      } else {
+        triggerModal(res.error || 'Gagal membuat kode verifikasi', 'danger');
+      }
+    } catch (err: any) {
+      triggerModal('Error: ' + String(err), 'danger');
+    } finally {
+      setIsGeneratingCode(false);
+    }
+  };
+
+  const handleInteractBot = async (callbackData?: string, commandText?: string) => {
+    const targetId = telegramIdInput.trim() || currentAccount?.settings?.telegramId || '123456789';
+    setIsLoadingBotInteract(true);
+    try {
+      const res = await telegramService.interact({
+        chatId: targetId,
+        callbackData,
+        commandText
+      });
+      if (res.success && res.result) {
+        setBotMessage(res.result.text);
+        setBotKeyboard(res.result.reply_markup?.inline_keyboard || []);
+      } else {
+        triggerModal(res.error || 'Gagal memproses menu Telegram', 'error');
+      }
+    } catch (err: any) {
+      triggerModal('Error: ' + String(err), 'error');
+    } finally {
+      setIsLoadingBotInteract(false);
+    }
+  };
+
+  const renderFormattedText = (htmlText: string) => {
+    const lines = htmlText.split('\n');
+    return lines.map((line, lineIdx) => {
+      let cleanLine = line
+        .replace(/<b>(.*?)<\/b>/g, '<strong>$1</strong>')
+        .replace(/<i>(.*?)<\/i>/g, '<em>$1</em>')
+        .replace(/<code>(.*?)<\/code>/g, '<code class="bg-cyan-950/80 text-cyan-300 px-1.5 py-0.5 rounded text-[11px] font-mono border border-cyan-500/30">$1</code>');
+
+      return (
+        <div key={lineIdx} className="min-h-[1.2em]" dangerouslySetInnerHTML={{ __html: cleanLine }} />
+      );
+    });
+  };
+
   useEffect(() => {
     if (currentAccount?.settings?.telegramId !== undefined) {
       setTelegramIdInput(currentAccount.settings.telegramId || '');
@@ -44,6 +108,18 @@ export const SettingsPage: React.FC = () => {
     }
 
     const cleanId = telegramIdInput.trim();
+
+    // 7. Validate Telegram Chat ID must be a number
+    if (cleanId && !/^\d+$/.test(cleanId)) {
+      triggerModal(
+        language === 'id'
+          ? '⚠️ Telegram Chat ID harus berupa angka saja (Contoh: 123456789).'
+          : '⚠️ Telegram Chat ID must be numbers only (e.g. 123456789).',
+        'warning'
+      );
+      return;
+    }
+
     setIsSavingTg(true);
 
     try {
@@ -52,37 +128,50 @@ export const SettingsPage: React.FC = () => {
         telegramId: cleanId,
       };
 
-      const updatedAccount: UserAccount = {
-        ...currentAccount,
-        settings: newSettings
-      };
+      // 1, 2, 3, 4, 9. Save Telegram Chat ID directly to Supabase users table (telegram_id column & settings column)
+      const saveRes = await saveTelegramChatIdToSupabase(
+        currentAccount.username,
+        cleanId,
+        newSettings
+      );
 
-      // 1. Update Supabase users table settings column and account details
-      await updateUserSettingsInSupabase(currentAccount.username, newSettings);
-      await saveAccountToSupabase(updatedAccount);
+      if (!saveRes.success) {
+        // 9. Display actual Supabase error message if save fails
+        triggerModal(
+          language === 'id'
+            ? `❌ Gagal menyimpan ke Supabase: ${saveRes.error}`
+            : `❌ Failed saving to Supabase: ${saveRes.error}`,
+          'error'
+        );
+        return;
+      }
 
-      // 2. Update React App State Context & LocalStorage
-      setCurrentAccount(updatedAccount);
-      setAccounts(prevAccounts => {
-        const updatedAccounts = prevAccounts.map(acc => {
-          if (acc.username.toLowerCase() === currentAccount.username.toLowerCase()) {
-            return updatedAccount;
-          }
-          return acc;
-        });
-        try {
-          localStorage.setItem('grockgold_accounts_v4', JSON.stringify(updatedAccounts));
-        } catch (e) {
-          console.error('LocalStorage write error:', e);
+      // 8. Refresh user data from Supabase and update state to show "Terhubung"
+      const freshAccounts = await fetchAccountsFromSupabase(currentAccount.username);
+      let updatedAccount: UserAccount | null = null;
+
+      if (freshAccounts && freshAccounts.length > 0) {
+        setAccounts(freshAccounts);
+        const found = freshAccounts.find(a => a.username.toLowerCase() === currentAccount.username.toLowerCase());
+        if (found) {
+          updatedAccount = found;
         }
-        return updatedAccounts;
-      });
+      }
 
-      // Fetch fresh bot info
-      const freshBot = await telegramService.getBotInfo();
-      setBotInfo(freshBot);
+      if (!updatedAccount) {
+        updatedAccount = {
+          ...currentAccount,
+          settings: newSettings
+        };
+      }
 
-      // 3. Send a welcoming confirmation message to Telegram if ID was provided
+      setCurrentAccount(updatedAccount);
+
+      // Refresh bot info
+      const freshBot = await telegramService.getBotInfo().catch(() => null);
+      if (freshBot) setBotInfo(freshBot);
+
+      // 6. Send a confirmation message via Telegram Bot (Does NOT fail the save process if Telegram message fails)
       if (cleanId) {
         const notifRes = await telegramService.sendNotification({
           telegramId: cleanId,
@@ -92,39 +181,39 @@ export const SettingsPage: React.FC = () => {
           message: `Telegram ID Anda (${cleanId}) telah berhasil dihubungkan ke akun GROCKGOLD @${currentAccount.username}. Notifikasi otomatis aktif!`,
           status: 'Secured'
         }).catch(err => {
-          console.warn('Telegram security note failed:', err);
+          console.warn('Telegram security note warning:', err);
           return null;
         });
 
         if (notifRes && notifRes.success && notifRes.delivered) {
           triggerModal(
             language === 'id'
-              ? '✅ Telegram ID Berhasil Disimpan & Terhubung! Pesan konfirmasi telah dikirim ke Telegram Anda.'
-              : '✅ Telegram ID Linked & Connected! Confirmation message sent to Telegram.',
+              ? '✅ Telegram Chat ID Berhasil Disimpan & Terhubung! Pesan konfirmasi telah dikirim ke Telegram Anda.'
+              : '✅ Telegram Chat ID Linked & Connected! Confirmation message sent to Telegram.',
             'success'
           );
         } else if (notifRes && notifRes.error) {
           triggerModal(
             language === 'id'
-              ? `✅ Telegram Chat ID Disimpan!\n\n⚠️ Catatan Notifikasi: ${notifRes.error}\n\nLangkah: Buka bot Telegram @trading_sinyal_pro_bot dan tekan /start agar bot dapat mengirim pesan.`
-              : `✅ Telegram Chat ID Saved!\n\n⚠️ Delivery Note: ${notifRes.error}\n\nStep: Open Telegram bot @trading_sinyal_pro_bot and press /start so the bot can send messages.`,
+              ? `✅ Telegram Chat ID Berhasil Disimpan & Terhubung!\n\n⚠️ Catatan Pengiriman Bot: ${notifRes.error}\n\nLangkah: Buka bot Telegram @${botInfo?.bot?.username || 'trading_sinyal_pro_bot'} dan tekan /start agar bot dapat mengirim pesan.`
+              : `✅ Telegram Chat ID Linked & Connected!\n\n⚠️ Bot Note: ${notifRes.error}\n\nStep: Open Telegram bot @${botInfo?.bot?.username || 'trading_sinyal_pro_bot'} and press /start so the bot can send messages.`,
             'info'
           );
         } else {
           triggerModal(
-            language === 'id' ? '✅ Pengaturan Telegram Berhasil Disimpan!' : '✅ Telegram Settings Saved Successfully!',
+            language === 'id' ? '✅ Pengaturan Telegram Berhasil Disimpan & Terhubung!' : '✅ Telegram Settings Saved & Connected!',
             'success'
           );
         }
       } else {
         triggerModal(
-          language === 'id' ? 'ℹ️ Pengaturan Telegram Diperbarui' : 'ℹ️ Telegram Settings Updated',
+          language === 'id' ? 'ℹ️ Telegram ID Diperbarui' : 'ℹ️ Telegram ID Updated',
           'info'
         );
       }
     } catch (err: any) {
       console.error('Save Telegram ID error:', err);
-      triggerModal('❌ Gagal menyimpan Telegram ID: ' + (err.message || String(err)), 'error');
+      triggerModal('❌ Terjadi kesalahan: ' + (err.message || String(err)), 'error');
     } finally {
       setIsSavingTg(false);
     }
@@ -366,6 +455,16 @@ export const SettingsPage: React.FC = () => {
               {language === 'id' ? 'Simpan & Hubungkan' : 'Save & Link'}
             </button>
 
+            <button
+              type="button"
+              onClick={handleGenerateLinkCode}
+              disabled={isGeneratingCode}
+              className="bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-300 font-bold text-xs px-3.5 py-2.5 rounded-2xl transition duration-200 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+            >
+              {isGeneratingCode ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Shield className="w-3.5 h-3.5" />}
+              {language === 'id' ? 'Buat Kode Verifikasi Bot' : 'Get Link Code'}
+            </button>
+
             {currentAccount?.settings?.telegramId && (
               <button
                 type="button"
@@ -376,6 +475,134 @@ export const SettingsPage: React.FC = () => {
                 {isTestingTg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
                 {language === 'id' ? 'Uji Notifikasi' : 'Test Alert'}
               </button>
+            )}
+          </div>
+
+          {linkingCode && (
+            <div className="p-3 bg-gradient-to-r from-amber-500/20 via-yellow-500/20 to-amber-900/30 border border-amber-400/60 rounded-2xl flex items-center justify-between mt-2">
+              <div>
+                <span className="text-[10px] text-amber-300 font-bold uppercase block tracking-wider">Kode Verifikasi Telegram Bot (Berlaku 15 Menit):</span>
+                <span className="text-xl font-black text-yellow-300 tracking-widest font-mono">{linkingCode}</span>
+              </div>
+              <a
+                href={`https://t.me/${botInfo?.bot?.username || 'trading_sinyal_pro_bot'}?start=${linkingCode}`}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-amber-400 text-black font-black text-xs px-3 py-2 rounded-xl shadow hover:bg-amber-300 transition flex items-center gap-1"
+              >
+                Gunakan di Bot <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          )}
+
+          {/* Interactive Telegram Bot Menu Preview & Tester */}
+          <div className="p-4 bg-[#0a1120] border border-cyan-500/30 rounded-2xl space-y-3 mt-3">
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="text-xs font-black text-cyan-300 uppercase tracking-wider">
+                    Uji Coba Inline Keyboard Bot
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-400 font-medium">
+                  {currentAccount?.role === 'admin' || currentAccount?.username?.toLowerCase() === 'admin' ? (
+                    <span className="text-amber-400 font-bold flex items-center gap-1">
+                      👑 Hak Akses: Administrator (Akses Penuh Admin Control Menu)
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 flex items-center gap-1">
+                      👤 Hak Akses: Member Regular (Terhubung Chat ID & Notifikasi, Akses Admin Dibatasi)
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!showBotPreview) {
+                    handleInteractBot(undefined, '/start');
+                  }
+                  setShowBotPreview(!showBotPreview);
+                }}
+                className="px-3 py-1 text-[10px] font-bold text-black bg-cyan-400 hover:bg-cyan-300 rounded-xl transition cursor-pointer shadow-md"
+              >
+                {showBotPreview ? 'Sembunyikan Menu' : '⚡ Buka Bot Menu'}
+              </button>
+            </div>
+
+            {showBotPreview && (
+              <div className="p-3.5 bg-[#0e1626] border border-cyan-500/20 rounded-2xl space-y-3 text-xs">
+                {/* Bot Header Bar */}
+                <div className="flex items-center justify-between border-b border-white/10 pb-2 text-slate-300 text-[11px]">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center font-black text-white text-[10px] shadow-inner">
+                      GG
+                    </div>
+                    <div>
+                      <div className="font-bold text-white flex items-center gap-1">
+                        GROCKGOLD Bot <CheckCircle2 className="w-3 h-3 text-cyan-400" />
+                      </div>
+                      <div className="text-[9px] text-slate-400">@{botInfo?.bot?.username || 'trading_sinyal_pro_bot'}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleInteractBot(undefined, '/start')}
+                    disabled={isLoadingBotInteract}
+                    className="px-2.5 py-1 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-[10px] font-bold rounded-lg border border-cyan-500/30 transition flex items-center gap-1 cursor-pointer"
+                  >
+                    {isLoadingBotInteract ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Kirim /start'}
+                  </button>
+                </div>
+
+                {/* Message Output */}
+                <div className="p-3 bg-black/70 border border-white/5 rounded-xl text-slate-200 text-xs leading-relaxed space-y-1 font-sans">
+                  {isLoadingBotInteract ? (
+                    <div className="flex items-center justify-center py-4 text-cyan-400 gap-2 text-xs">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Memproses API Telegram...</span>
+                    </div>
+                  ) : botMessage ? (
+                    renderFormattedText(botMessage)
+                  ) : (
+                    <span className="text-slate-400 italic">Tekan 'Kirim /start' untuk melihat menu utama bot.</span>
+                  )}
+                </div>
+
+                {/* Inline Keyboard Buttons */}
+                {botKeyboard.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                      Telegram Inline Keyboard (Klik tombol):
+                    </span>
+                    {botKeyboard.map((row, rowIdx) => (
+                      <div key={rowIdx} className="grid grid-cols-2 gap-1.5">
+                        {row.map((btn, btnIdx) => (
+                          <button
+                            key={btnIdx}
+                            type="button"
+                            onClick={() => handleInteractBot(btn.callback_data)}
+                            disabled={isLoadingBotInteract}
+                            className={`py-2 px-3 text-xs font-bold rounded-xl border transition flex items-center justify-center text-center cursor-pointer active:scale-95 shadow-md ${
+                              row.length === 1 ? 'col-span-2' : ''
+                            } ${
+                              btn.callback_data === 'admin_panel' || btn.callback_data.startsWith('admin_')
+                                ? 'bg-gradient-to-r from-purple-600/40 via-amber-500/30 to-gold-primary/30 border-amber-400/60 text-amber-300 hover:bg-amber-500/40 shadow-amber-900/30 font-black'
+                                : btn.callback_data === 'menu_main'
+                                ? 'bg-gradient-to-r from-amber-500/20 to-gold-primary/20 border-gold-primary/40 text-gold-primary hover:bg-gold-primary/30'
+                                : btn.callback_data === 'claim_daily_reward'
+                                ? 'bg-gradient-to-r from-emerald-500/30 to-teal-500/30 border-emerald-400/50 text-emerald-300 hover:bg-emerald-500/40'
+                                : 'bg-cyan-950/40 hover:bg-cyan-900/50 border-cyan-500/30 text-cyan-300'
+                            }`}
+                          >
+                            {btn.text}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

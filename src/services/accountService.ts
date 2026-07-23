@@ -2,7 +2,8 @@ import {
   saveAccountToSupabase, 
   fetchAccountsFromSupabase, 
   updateProfileImageInSupabase, 
-  updateUserSettingsInSupabase 
+  updateUserSettingsInSupabase,
+  saveTelegramChatIdToSupabase
 } from '../supabase';
 import { UserAccount } from '../types';
 
@@ -21,5 +22,9 @@ export const accountService = {
 
   async updateUserSettings(username: string, settings: any): Promise<boolean> {
     return await updateUserSettingsInSupabase(username, settings);
+  },
+
+  async saveTelegramChatId(username: string, telegramId: string, settings: any): Promise<{ success: boolean; error?: string }> {
+    return await saveTelegramChatIdToSupabase(username, telegramId, settings);
   }
 };
