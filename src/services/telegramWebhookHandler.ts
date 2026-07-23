@@ -53,6 +53,7 @@ export function verifyTelegramInitData(initData: string, botToken: string): bool
 export async function callTelegramApi(method: string, payload: any, botToken?: string) {
   const token = botToken || process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
+    console.error('[TELEGRAM API ERROR] TELEGRAM_BOT_TOKEN / BOT_TOKEN is missing in environment variables.');
     throw new Error('TELEGRAM_BOT_TOKEN / BOT_TOKEN is missing in environment variables.');
   }
 
@@ -64,41 +65,49 @@ export async function callTelegramApi(method: string, payload: any, botToken?: s
 
   const json = await res.json();
   if (!json.ok) {
-    console.warn(`Telegram API call ${method} failed:`, json.description || json);
+    console.warn(`[TELEGRAM API WARN] ${method} failed for chat ${payload.chat_id || 'N/A'}:`, json.description || json);
+  } else {
+    console.log(`[TELEGRAM API SUCCESS] ${method} successfully delivered to chat ${payload.chat_id || 'N/A'}`);
   }
   return json;
 }
 
 // Supabase REST Helper
 async function querySupabase(path: string, options: { method?: string; body?: any; headers?: Record<string, string> } = {}) {
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Supabase configuration missing (SUPABASE_URL / VITE_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)');
-  }
-
-  const res = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
-    method: options.method || 'GET',
-    headers: {
-      'apikey': supabaseKey,
-      'Authorization': `Bearer ${supabaseKey}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error(`Supabase query failed for ${path}:`, errText);
-    return null;
-  }
-
   try {
-    return await res.json();
-  } catch {
-    return true;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.warn('[SUPABASE WARN] Configuration missing (SUPABASE_URL / VITE_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)');
+      return null;
+    }
+
+    const res = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+      method: options.method || 'GET',
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`[SUPABASE ERROR] Query failed for ${path}:`, errText);
+      return null;
+    }
+
+    try {
+      return await res.json();
+    } catch {
+      return true;
+    }
+  } catch (err: any) {
+    console.error(`[SUPABASE FETCH EXCEPTION] Path: ${path}:`, err?.message || String(err));
+    return null;
   }
 }
 
@@ -268,6 +277,14 @@ export async function executeLinkAccount(codeOrUsername: string, tgUser: any) {
 // Main Telegram Webhook Processing Function
 export async function processTelegramWebhook(update: any) {
   if (!update) return { status: 'skipped', reason: 'Empty update payload' };
+
+  const updateId = update.update_id || 'N/A';
+  const eventType = update.message ? 'message' : update.callback_query ? 'callback_query' : update.edited_message ? 'edited_message' : 'other';
+  const chatId = update.message?.chat?.id || update.callback_query?.message?.chat?.id || update.edited_message?.chat?.id || 'N/A';
+  const username = update.message?.from?.username || update.callback_query?.from?.username || update.edited_message?.from?.username || 'N/A';
+  const textOrData = update.message?.text || update.callback_query?.data || '';
+
+  console.log(`[TELEGRAM WEBHOOK INCOMING] Update ID: ${updateId} | Event: ${eventType} | Chat ID: ${chatId} | Username: @${username} | Content: "${textOrData}"`);
 
   try {
     // 1. Handle Incoming Text Messages (Commands / Commands with args / Direct code input)
