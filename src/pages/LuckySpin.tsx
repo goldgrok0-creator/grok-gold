@@ -408,7 +408,6 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
   const [isSpinning, setIsSpinning] = useState(false);
   const [isLoadingInfo, setIsLoadingInfo] = useState(true);
   
-  const [spinCost, setSpinCost] = useState(100000);
   const [todaySpins, setTodaySpins] = useState(0);
   const [maxDailySpins, setMaxDailySpins] = useState(3);
   const [nextResetAt, setNextResetAt] = useState<number | null>(null);
@@ -459,7 +458,6 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
       }
       const data = await res.json();
       if (data.success) {
-        setSpinCost(data.spinCost || 0);
         setTodaySpins(data.todaySpins || 0);
         setMaxDailySpins(data.maxDailySpins || 3);
 

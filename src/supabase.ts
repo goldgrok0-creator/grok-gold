@@ -375,6 +375,12 @@ export async function seedDefaultAdminIfNeeded(): Promise<void> {
       };
 
       await supabase.from('users').insert(adminPayload);
+      try {
+        await supabase.from('spin_balances').upsert([
+          { username: 'admin', type: 'free', amount: 1000000, updated_at: new Date().toISOString() },
+          { username: 'admin', type: 'bonus', amount: 0, updated_at: new Date().toISOString() }
+        ], { onConflict: 'username,type' });
+      } catch (_) {}
       console.log('Seeded default admin successfully.');
     }
   } catch (err) {
@@ -563,8 +569,9 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
       const userColVal = (user.free_spin_balance !== undefined && user.free_spin_balance !== null) ? Number(user.free_spin_balance) : undefined;
       const userSettingsVal = (user.settings?.freeSpinBalance !== undefined && user.settings?.freeSpinBalance !== null) ? Number(user.settings.freeSpinBalance) : undefined;
 
-      const validFreeSpins = [freeRowVal, userColVal, userSettingsVal].filter((v): v is number => typeof v === 'number' && !isNaN(v) && v >= 0);
-      const rawFreeSpin = validFreeSpins.length > 0 ? Math.min(...validFreeSpins) : 1000000;
+      const rawFreeSpin = freeRowVal !== undefined
+        ? freeRowVal
+        : (userColVal !== undefined ? userColVal : (userSettingsVal !== undefined ? userSettingsVal : 1000000));
 
       const rawBonusSpin = bonusSpinRow
         ? Number(bonusSpinRow.amount)
@@ -698,13 +705,40 @@ export async function registerUserInSupabase(account: UserAccount): Promise<bool
     }
 
     // Save initial balances to consolidated spin_balances table
+    let spinBalancesCreated = false;
     try {
-      await supabase.from('spin_balances').upsert([
+      const { error: sbErr } = await supabase.from('spin_balances').upsert([
         { username: account.username, type: 'free', amount: freeSpinBal, updated_at: new Date().toISOString() },
         { username: account.username, type: 'bonus', amount: bonusSpinBal, updated_at: new Date().toISOString() }
       ], { onConflict: 'username,type' });
+
+      if (!sbErr) {
+        spinBalancesCreated = true;
+      } else {
+        console.warn('Upsert spin_balances error during registration, attempting explicit inserts:', sbErr.message);
+        const { error: freeInsErr } = await supabase.from('spin_balances').insert({ username: account.username, type: 'free', amount: freeSpinBal });
+        const { error: bonusInsErr } = await supabase.from('spin_balances').insert({ username: account.username, type: 'bonus', amount: bonusSpinBal });
+        if (!freeInsErr && !bonusInsErr) {
+          spinBalancesCreated = true;
+        }
+      }
     } catch (spinErr) {
-      console.warn('Non-fatal error creating spin_balances record:', spinErr);
+      console.warn('Error creating spin_balances record:', spinErr);
+    }
+
+    // Verify records actually exist in spin_balances
+    if (!spinBalancesCreated) {
+      const { data: verifyRows } = await supabase.from('spin_balances').select('type').eq('username', account.username);
+      if (Array.isArray(verifyRows) && verifyRows.length >= 2) {
+        spinBalancesCreated = true;
+      }
+    }
+
+    // Rollback user creation if spin_balances failed to guarantee no half-created accounts
+    if (!spinBalancesCreated) {
+      console.error('Spin balances creation failed. Rolling back user creation for:', account.username);
+      await supabase.from('users').delete().eq('username', account.username);
+      return false;
     }
 
     try {

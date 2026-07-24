@@ -1,6 +1,6 @@
 export interface Transaction {
   id: string;
-  type: 'deposit' | 'withdraw' | 'reward' | 'purchase' | 'referral' | 'rebate' | 'welcome_bonus' | 'bonus';
+  type: 'deposit' | 'withdraw' | 'reward' | 'purchase' | 'referral' | 'rebate' | 'welcome_bonus' | 'bonus' | 'lucky_spin_reward' | 'spin_reward';
   amount: number;
   date: number; // timestamp
   description: string;
@@ -127,7 +127,6 @@ export const CONFIG = {
   CLAIM_COOLDOWN: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
   MIN_DEPOSIT: 100000,
   MIN_WITHDRAW: 100000,
-  SPIN_COST: 100000,
   MAX_DAILY_SPINS: 3,
   WELCOME_FREE_SPIN_BONUS: 1000000,
   REFERRAL_FREE_SPIN_BONUS: 50000,

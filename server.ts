@@ -19,6 +19,17 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
+// CORS headers for cross-origin production API access
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Initialize GoogleGenAI client
 const apiKey = process.env.GEMINI_API_KEY;
 const ai = apiKey ? new GoogleGenAI({
@@ -1515,10 +1526,10 @@ app.post("/api/telegram/admin/unlink", async (req, res) => {
 // ==========================================
 // LUCKY SPIN & SALDO FREE SPIN API ENDPOINTS
 // ==========================================
-let SPIN_COST = 100000; // Rp 100.000 default spin cost
 const MAX_DAILY_SPINS = 3;
 
 const memoryUserStore = new Map<string, any>();
+const activeSpinLocks = new Set<string>();
 
 const LUCKY_SPIN_PRIZES = [
   { index: 0, label: 'Rp 500', value: 500, type: 'cash', weight: 30 },
@@ -1696,8 +1707,8 @@ app.get("/api/lucky-spin/info", async (req, res) => {
     const { username } = req.query;
     console.log(`[LUCKY-SPIN GET /info] Received request for username: "${username}"`);
 
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
     if (!supabaseUrl || !supabaseKey) {
       return res.status(500).json({ success: false, error: "Koneksi Supabase tidak tersedia." });
     }
@@ -1779,14 +1790,9 @@ app.get("/api/lucky-spin/info", async (req, res) => {
       return sum;
     }, 0);
 
-    // Consolidated spin balances from spin_balances table
-    const freeSpinFromSettings = typeof user.settings?.freeSpinBalance === 'number' ? user.settings.freeSpinBalance : undefined;
+    // Consolidated spin balances from spin_balances table (PRIMARY SOURCE OF TRUTH)
     let freeSpinFromSb: number | undefined = undefined;
-    let bonusSpinBalance = Math.max(
-      user.settings?.bonusSpinBalance ?? 0,
-      user.settings?.rewardSpinWallet ?? 0,
-      totalWonFromHistory
-    );
+    let bonusSpinFromSb: number | undefined = undefined;
 
     try {
       const sbRes = await fetch(`${supabaseUrl}/rest/v1/spin_balances?username=ilike.${encodeURIComponent(user.username)}`, {
@@ -1801,15 +1807,44 @@ app.get("/api/lucky-spin/info", async (req, res) => {
           const freeRow = spinRows.find((r: any) => r.type === 'free');
           const bonusRow = spinRows.find((r: any) => r.type === 'bonus');
           if (freeRow && freeRow.amount !== undefined && freeRow.amount !== null) freeSpinFromSb = Number(freeRow.amount);
-          if (bonusRow && bonusRow.amount !== undefined && bonusRow.amount !== null) bonusSpinBalance = Math.max(bonusSpinBalance, Number(bonusRow.amount));
+          if (bonusRow && bonusRow.amount !== undefined && bonusRow.amount !== null) bonusSpinFromSb = Number(bonusRow.amount);
         }
       }
     } catch (sbErr) {
       console.warn("Non-fatal error reading spin_balances in /info:", sbErr);
     }
 
-    const validFreeSpinsInfo = [freeSpinFromSettings, freeSpinFromSb].filter((v): v is number => typeof v === 'number' && !isNaN(v) && v >= 0);
-    const freeSpinBalance = validFreeSpinsInfo.length > 0 ? Math.min(...validFreeSpinsInfo) : 1000000;
+    const freeSpinBalance = freeSpinFromSb !== undefined
+      ? freeSpinFromSb
+      : (typeof user.settings?.freeSpinBalance === 'number' ? user.settings.freeSpinBalance : 1000000);
+
+    const bonusSpinBalance = bonusSpinFromSb !== undefined
+      ? bonusSpinFromSb
+      : Math.max(
+          user.settings?.bonusSpinBalance ?? 0,
+          user.settings?.rewardSpinWallet ?? 0,
+          totalWonFromHistory
+        );
+
+    if (freeSpinFromSb === undefined || bonusSpinFromSb === undefined) {
+      try {
+        await fetch(`${supabaseUrl}/rest/v1/spin_balances?on_conflict=username,type`, {
+          method: 'POST',
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'resolution=merge-duplicates'
+          },
+          body: JSON.stringify([
+            { username: user.username, type: 'free', amount: freeSpinBalance, updated_at: new Date().toISOString() },
+            { username: user.username, type: 'bonus', amount: bonusSpinBalance, updated_at: new Date().toISOString() }
+          ])
+        });
+      } catch (e) {
+        console.warn("Auto-seed spin_balances warning:", e);
+      }
+    }
 
     const mainBalance = Number(user.main_balance || 0);
 
@@ -1823,7 +1858,6 @@ app.get("/api/lucky-spin/info", async (req, res) => {
       bonusSpinBalance,
       rewardSpinWallet: bonusSpinBalance,
       mainBalance,
-      spinCost: SPIN_COST,
       todaySpins: windowState.todaySpins,
       maxDailySpins: MAX_DAILY_SPINS,
       lastSpinResetAt: windowState.lastSpinResetAt,
@@ -1844,8 +1878,8 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
     const { username } = req.body;
     console.log(`[LUCKY-SPIN POST /spin] Received spin request for username: "${username}"`);
 
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
     if (!supabaseUrl || !supabaseKey) {
       return res.status(500).json({ success: false, error: "Koneksi Supabase tidak tersedia." });
     }
@@ -1887,104 +1921,116 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
       return res.status(404).json({ success: false, error: "Akun tidak ditemukan. Silakan login terlebih dahulu." });
     }
 
-    const memUserSpin = memoryUserStore.get(user.username) || (typeof username === 'string' ? memoryUserStore.get(username) : null);
-    if (memUserSpin && memUserSpin.settings) {
-      const memHistory = memUserSpin.settings.luckySpinHistory || [];
-      const dbHistory = user.settings?.luckySpinHistory || [];
-      if (memHistory.length >= dbHistory.length) {
-        user.settings = { ...user.settings, ...memUserSpin.settings };
-        if (memUserSpin.main_balance !== undefined) {
-          user.main_balance = memUserSpin.main_balance;
-        }
-      }
+    const lockKey = user.username.toLowerCase();
+    if (activeSpinLocks.has(lockKey)) {
+      return res.status(429).json({ success: false, error: "Spin sedang diproses. Mohon tunggu sejenak..." });
     }
-
-    // Safety check: verify auth token match if present (with fallback for stale tokens on active user session)
-    if (authUser && user.email && authUser.email && user.email.toLowerCase() !== authUser.email.toLowerCase()) {
-      if (reqUsername && user.username.toLowerCase() === reqUsername.toLowerCase()) {
-        console.warn(`[LUCKY-SPIN] Stale token (${authUser.email}) detected for active user (${user.username}/${user.email}). Proceeding with active user account.`);
-      } else {
-        return res.status(403).json({ success: false, error: "Akses ditolak. Anda tidak memiliki izin memutar spin untuk akun lain." });
-      }
-    }
-
-    const history = (user.settings?.luckySpinHistory || []).filter((item: any) => item && item.id !== '1' && item.id !== '2' && item.id !== '3' && item.prize !== 'Boost 5x');
-    const totalWonFromHistory = history.reduce((sum: number, item: any) => {
-      if (item && (item.success || item.type === 'cash' || (item.value && item.value > 0)) && typeof item.value === 'number') {
-        return sum + item.value;
-      }
-      return sum;
-    }, 0);
-
-    const freeSpinFromSettingsSpin = typeof user.settings?.freeSpinBalance === 'number' ? user.settings.freeSpinBalance : undefined;
-    let freeSpinFromSbSpin: number | undefined = undefined;
-    let currentBonusSpinBalance = Math.max(
-      user.settings?.bonusSpinBalance ?? 0,
-      user.settings?.rewardSpinWallet ?? 0,
-      totalWonFromHistory
-    );
+    activeSpinLocks.add(lockKey);
 
     try {
-      const sbRes = await fetch(`${supabaseUrl}/rest/v1/spin_balances?username=ilike.${encodeURIComponent(user.username)}`, {
-        headers: {
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`
-        }
-      });
-      if (sbRes.ok) {
-        const spinRows = await sbRes.json();
-        if (Array.isArray(spinRows) && spinRows.length > 0) {
-          const freeRow = spinRows.find((r: any) => r.type === 'free');
-          const bonusRow = spinRows.find((r: any) => r.type === 'bonus');
-          if (freeRow && freeRow.amount !== undefined && freeRow.amount !== null) freeSpinFromSbSpin = Number(freeRow.amount);
-          if (bonusRow && bonusRow.amount !== undefined && bonusRow.amount !== null) currentBonusSpinBalance = Math.max(currentBonusSpinBalance, Number(bonusRow.amount));
+      const memUserSpin = memoryUserStore.get(user.username) || (typeof username === 'string' ? memoryUserStore.get(username) : null);
+      if (memUserSpin && memUserSpin.settings) {
+        const memHistory = memUserSpin.settings.luckySpinHistory || [];
+        const dbHistory = user.settings?.luckySpinHistory || [];
+        if (memHistory.length >= dbHistory.length) {
+          user.settings = { ...user.settings, ...memUserSpin.settings };
+          if (memUserSpin.main_balance !== undefined) {
+            user.main_balance = memUserSpin.main_balance;
+          }
         }
       }
-    } catch (sbErr) {
-      console.warn("Non-fatal error reading spin_balances in /spin:", sbErr);
-    }
 
-    const validFreeSpinsSpin = [freeSpinFromSettingsSpin, freeSpinFromSbSpin].filter((v): v is number => typeof v === 'number' && !isNaN(v) && v >= 0);
-    let currentFreeSpinBalance = validFreeSpinsSpin.length > 0 ? Math.min(...validFreeSpinsSpin) : 1000000;
+      // Safety check: verify auth token match if present (with fallback for stale tokens on active user session)
+      if (authUser && user.email && authUser.email && user.email.toLowerCase() !== authUser.email.toLowerCase()) {
+        if (reqUsername && user.username.toLowerCase() === reqUsername.toLowerCase()) {
+          console.warn(`[LUCKY-SPIN] Stale token (${authUser.email}) detected for active user (${user.username}/${user.email}). Proceeding with active user account.`);
+        } else {
+          return res.status(403).json({ success: false, error: "Akses ditolak. Anda tidak memiliki izin memutar spin untuk akun lain." });
+        }
+      }
 
-    const currentMainBalance = Number(user.main_balance || 0);
+      const history = (user.settings?.luckySpinHistory || []).filter((item: any) => item && item.id !== '1' && item.id !== '2' && item.id !== '3' && item.prize !== 'Boost 5x');
+      const totalWonFromHistory = history.reduce((sum: number, item: any) => {
+        if (item && (item.success || item.type === 'cash' || (item.value && item.value > 0)) && typeof item.value === 'number') {
+          return sum + item.value;
+        }
+        return sum;
+      }, 0);
 
-    const windowState = await getSpinWindowState(user.username, user, supabaseUrl, supabaseKey);
+      let freeSpinFromSbSpin: number | undefined = undefined;
+      let bonusSpinFromSbSpin: number | undefined = undefined;
 
-    if (windowState.todaySpins >= MAX_DAILY_SPINS) {
-      const hours = String(Math.floor(windowState.resetSecondsRemaining / 3600)).padStart(2, '0');
-      const minutes = String(Math.floor((windowState.resetSecondsRemaining % 3600) / 60)).padStart(2, '0');
-      const seconds = String(windowState.resetSecondsRemaining % 60).padStart(2, '0');
-      const timeStr = `${hours}:${minutes}:${seconds}`;
+      try {
+        const sbRes = await fetch(`${supabaseUrl}/rest/v1/spin_balances?username=ilike.${encodeURIComponent(user.username)}`, {
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`
+          }
+        });
+        if (sbRes.ok) {
+          const spinRows = await sbRes.json();
+          if (Array.isArray(spinRows) && spinRows.length > 0) {
+            const freeRow = spinRows.find((r: any) => r.type === 'free');
+            const bonusRow = spinRows.find((r: any) => r.type === 'bonus');
+            if (freeRow && freeRow.amount !== undefined && freeRow.amount !== null) freeSpinFromSbSpin = Number(freeRow.amount);
+            if (bonusRow && bonusRow.amount !== undefined && bonusRow.amount !== null) bonusSpinFromSbSpin = Number(bonusRow.amount);
+          }
+        }
+      } catch (sbErr) {
+        console.warn("Non-fatal error reading spin_balances in /spin:", sbErr);
+      }
 
-      return res.json({
-        success: false,
-        todaySpins: windowState.todaySpins,
-        maxDailySpins: MAX_DAILY_SPINS,
-        lastSpinResetAt: windowState.lastSpinResetAt,
-        nextResetAt: windowState.nextResetAt,
-        resetSecondsRemaining: windowState.resetSecondsRemaining,
-        serverTime: Date.now(),
-        error: `Limit spin harian tercapai (${windowState.todaySpins}/${MAX_DAILY_SPINS} kali). Otomatis reset dalam ${timeStr}.`
-      });
-    }
+      let currentFreeSpinBalance = freeSpinFromSbSpin !== undefined
+        ? freeSpinFromSbSpin
+        : (typeof user.settings?.freeSpinBalance === 'number' ? user.settings.freeSpinBalance : 1000000);
 
-    if (currentFreeSpinBalance <= 0) {
-      return res.json({
-        success: false,
-        error: `Saldo Free Spin Anda telah habis (Rp 0). Tambah Saldo Free Spin Anda dengan mengundang member baru (+Rp 50.000 per referral)!`
-      });
-    }
+      let currentBonusSpinBalance = bonusSpinFromSbSpin !== undefined
+        ? bonusSpinFromSbSpin
+        : Math.max(
+            user.settings?.bonusSpinBalance ?? 0,
+            user.settings?.rewardSpinWallet ?? 0,
+            totalWonFromHistory
+          );
 
-    const prize = selectWeightedPrize(currentFreeSpinBalance);
+      const currentMainBalance = Number(user.main_balance || 0);
 
-    const isZonk = prize.type === 'zonk' || prize.value === 0;
-    const wonAmount = isZonk ? 0 : prize.value;
-    const deduction = isZonk ? 0 : Math.min(currentFreeSpinBalance, prize.value);
+      const windowState = await getSpinWindowState(user.username, user, supabaseUrl, supabaseKey);
 
-    const newFreeSpinBalance = Math.max(0, currentFreeSpinBalance - deduction);
-    const newBonusSpinBalance = currentBonusSpinBalance + wonAmount;
-    const newMainBalance = currentMainBalance + wonAmount;
+      if (windowState.todaySpins >= MAX_DAILY_SPINS) {
+        const hours = String(Math.floor(windowState.resetSecondsRemaining / 3600)).padStart(2, '0');
+        const minutes = String(Math.floor((windowState.resetSecondsRemaining % 3600) / 60)).padStart(2, '0');
+        const seconds = String(windowState.resetSecondsRemaining % 60).padStart(2, '0');
+        const timeStr = `${hours}:${minutes}:${seconds}`;
+
+        return res.json({
+          success: false,
+          todaySpins: windowState.todaySpins,
+          maxDailySpins: MAX_DAILY_SPINS,
+          lastSpinResetAt: windowState.lastSpinResetAt,
+          nextResetAt: windowState.nextResetAt,
+          resetSecondsRemaining: windowState.resetSecondsRemaining,
+          serverTime: Date.now(),
+          error: `Limit spin harian tercapai (${windowState.todaySpins}/${MAX_DAILY_SPINS} kali). Otomatis reset dalam ${timeStr}.`
+        });
+      }
+
+      if (currentFreeSpinBalance <= 0) {
+        return res.json({
+          success: false,
+          error: `Saldo Free Spin Anda telah habis (Rp 0). Tambah Saldo Free Spin Anda dengan mengundang member baru (+Rp 50.000 per referral)!`
+        });
+      }
+
+      const prize = selectWeightedPrize(currentFreeSpinBalance);
+
+      const isZonk = prize.type === 'zonk' || prize.value === 0;
+      const wonAmount = isZonk ? 0 : prize.value;
+      // Deduction rule: Free Spin Baru = Free Spin Lama - Nilai Reward yang Didapat (Zonk / Reward = 0 -> Deduction = 0)
+      const deduction = isZonk ? 0 : Math.min(currentFreeSpinBalance, prize.value);
+
+      const newFreeSpinBalance = Math.max(0, currentFreeSpinBalance - deduction);
+      const newBonusSpinBalance = currentBonusSpinBalance + wonAmount;
+      const newMainBalance = currentMainBalance + wonAmount;
 
     const newSpinRecord = {
       id: `SPN-${Date.now()}`,
@@ -2108,21 +2154,22 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
       resetSecondsRemaining: finalResetSecondsRemaining,
       serverTime: Date.now()
     });
+    } catch (err: any) {
+      console.error("Error in /api/lucky-spin/spin:", err);
+      return res.status(500).json({ success: false, error: err.message || String(err) });
+    } finally {
+      activeSpinLocks.delete(lockKey);
+    }
   } catch (err: any) {
-    console.error("Error in /api/lucky-spin/spin:", err);
+    console.error("Fatal error in /api/lucky-spin/spin:", err);
     return res.status(500).json({ success: false, error: err.message || String(err) });
   }
 });
 
-// Admin update spin cost configuration
+// Admin update spin configuration
 app.post("/api/lucky-spin/admin/config", async (req, res) => {
   try {
-    const { spinCost } = req.body;
-    if (spinCost !== undefined && !isNaN(Number(spinCost)) && Number(spinCost) >= 0) {
-      SPIN_COST = Number(spinCost);
-      return res.json({ success: true, spinCost: SPIN_COST, message: `Biaya spin berhasil diperbarui ke Rp ${SPIN_COST.toLocaleString('id-ID')}` });
-    }
-    return res.status(400).json({ success: false, error: "Nilai spinCost tidak valid." });
+    return res.json({ success: true, message: "Pengaturan Lucky Spin aktif (deduction otomatis berdasarkan nilai reward yang didapat)." });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || String(err) });
   }
@@ -2291,4 +2338,8 @@ async function startServer() {
   });
 }
 
-startServer();
+export default app;
+
+if (process.env.VERCEL !== '1' && process.env.NOW_BUILD !== '1' && !process.env.VERCEL_ENV) {
+  startServer();
+}

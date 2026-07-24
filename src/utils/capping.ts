@@ -19,13 +19,16 @@ export interface CappingMetrics {
 
   // Bonus Income - SEPARATE, NOT included in 250% Capping
   bonusIncome: number;
+
+  // Lucky Spin Reward - SEPARATE, NOT included in 250% Capping
+  luckySpinReward: number;
 }
 
 /**
  * Calculates the exact Capping Earnings and Progress based on system rules:
  * 1. Maximum Earnings = Total Modal Aktif x 250%
- * 2. Capping Earnings = Daily Reward + Referral Income + Rebate Income
- * 3. Bonus Income MUST NOT be included in Capping Earnings and does not reduce Remaining Capping.
+ * 2. Capping Earnings = Daily Reward (Contracts/Yield) + Referral Income + Rebate Income
+ * 3. Lucky Spin Rewards & Bonus Income MUST NOT be included in Capping Earnings and do not reduce Remaining Capping.
  * 4. Prevents double counting (no direct addition of totalEarned or totalProfit).
  */
 export function calculateCappingEarnings(
@@ -45,11 +48,20 @@ export function calculateCappingEarnings(
   let referral = 0;
   let rebate = 0;
   let bonus = 0;
+  let luckySpinReward = 0;
 
   for (let i = 0; i < transactions.length; i++) {
     const tx = transactions[i];
     const amount = Number(tx.amount) || 0;
-    if (tx.type === 'reward') {
+
+    // Check if it's a Lucky Spin reward based on type or description
+    const isLuckySpin = tx.type === 'lucky_spin_reward' ||
+                        tx.type === 'spin_reward' ||
+                        (tx.description && tx.description.toLowerCase().includes('lucky spin'));
+
+    if (isLuckySpin) {
+      luckySpinReward += amount;
+    } else if (tx.type === 'reward') {
       dailyReward += amount;
     } else if (tx.type === 'referral') {
       referral += amount;
@@ -64,6 +76,10 @@ export function calculateCappingEarnings(
   const finalReferral = Math.max(referral, state?.referralEarned || 0);
   const finalRebate = Math.max(rebate, state?.rebateEarned || 0);
 
+  // Fallback for Lucky Spin Reward from state if transaction log does not contain all spin entries
+  const stateBonusSpin = Number(state?.bonusSpinBalance) || 0;
+  const finalLuckySpinReward = Math.max(luckySpinReward, stateBonusSpin);
+
   // Bonus Income logic - completely separate from Capping
   let finalBonus = bonus;
   if (state?.welcomeBonusClaimed) {
@@ -72,7 +88,7 @@ export function calculateCappingEarnings(
     finalBonus = 0; // Unclaimed bonus does not count as received bonus income
   }
 
-  // EXACT FORMULA: Capping Earnings = Daily Reward + Referral Income + Rebate Income
+  // EXACT FORMULA: Capping Earnings = Daily Reward (Contracts) + Referral Income + Rebate Income
   const cappingEarnings = dailyReward + finalReferral + finalRebate;
 
   const remainingCapping = Math.max(0, maxPossibleEarnings - cappingEarnings);
@@ -102,5 +118,6 @@ export function calculateCappingEarnings(
     cappingPercentStr,
     isCapped,
     bonusIncome: finalBonus,
+    luckySpinReward: finalLuckySpinReward,
   };
 }
