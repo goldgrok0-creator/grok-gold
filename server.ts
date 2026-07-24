@@ -1565,20 +1565,21 @@ async function getSpinWindowState(username: string, user: any, supabaseUrl?: str
   const now = Date.now();
   const PERIOD_MS = 24 * 60 * 60 * 1000;
 
-  const memoryUser = memoryUserStore.get(username);
-  let lastReset = user?.settings?.lastSpinResetAt || memoryUser?.settings?.lastSpinResetAt || user?.last_spin_reset_at;
+  const memoryUser = memoryUserStore.get(username) || memoryUserStore.get(username.toLowerCase());
+  let lastReset = user?.settings?.lastSpinResetAt || memoryUser?.settings?.lastSpinResetAt || user?.last_spin_reset_at || 0;
 
-  const memoryHistory = memoryUser?.settings?.luckySpinHistory || [];
-  const userHistory = user?.settings?.luckySpinHistory || [];
-  const allHistory = [...memoryHistory, ...userHistory];
+  // Use history from user.settings or memoryUser.settings (prefer user.settings)
+  const userHistory = Array.isArray(user?.settings?.luckySpinHistory)
+    ? user.settings.luckySpinHistory
+    : (Array.isArray(memoryUser?.settings?.luckySpinHistory) ? memoryUser.settings.luckySpinHistory : []);
 
   let userUpdated = false;
 
   // Filter valid spin history (excluding bonus/test items)
   const historySet = new Set<string>();
   const validSpins: any[] = [];
-  allHistory.forEach((item: any) => {
-    if (!item || !item.date) return;
+  userHistory.forEach((item: any) => {
+    if (!item) return;
     if (item.id === '1' || item.id === '2' || item.id === '3' || item.prize === 'Boost 5x') return;
     const key = item.id || `${item.date}-${item.prize}`;
     if (!historySet.has(key)) {
@@ -1704,6 +1705,7 @@ async function getAuthUserFromRequest(req: any, supabaseUrl: string, supabaseKey
 async function findUserForLuckySpin(reqUsername: string, authUser: any, supabaseUrl: string, supabaseKey: string) {
   let user: any = null;
 
+  // 1. Direct query by username if specified
   if (reqUsername) {
     try {
       const res = await fetch(`${supabaseUrl}/rest/v1/users?username=ilike.${encodeURIComponent(reqUsername)}`, {
@@ -1721,9 +1723,14 @@ async function findUserForLuckySpin(reqUsername: string, authUser: any, supabase
     } catch (e) {
       console.warn("[LUCKY-SPIN] Direct user query by username failed:", e);
     }
+
+    if (!user) {
+      user = memoryUserStore.get(reqUsername) || memoryUserStore.get(reqUsername.toLowerCase());
+    }
   }
 
-  if (!user && authUser?.email) {
+  // 2. Fallback search by email ONLY if reqUsername was NOT provided
+  if (!user && !reqUsername && authUser?.email) {
     try {
       const res = await fetch(`${supabaseUrl}/rest/v1/users?email=ilike.${encodeURIComponent(authUser.email)}`, {
         headers: {
@@ -1742,11 +1749,8 @@ async function findUserForLuckySpin(reqUsername: string, authUser: any, supabase
     }
   }
 
+  // 3. Fallback search in recent rows if reqUsername was specified
   if (!user && reqUsername) {
-    user = memoryUserStore.get(reqUsername) || memoryUserStore.get(reqUsername.toLowerCase());
-  }
-
-  if (!user) {
     try {
       const res = await fetch(`${supabaseUrl}/rest/v1/users?select=*&order=created_at.desc&limit=50`, {
         headers: {
@@ -1757,12 +1761,7 @@ async function findUserForLuckySpin(reqUsername: string, authUser: any, supabase
       if (res.ok) {
         const rows = await res.json();
         if (Array.isArray(rows)) {
-          if (reqUsername) {
-            user = rows.find((u: any) => u.username?.toLowerCase() === reqUsername.toLowerCase());
-          }
-          if (!user && authUser?.id) {
-            user = rows.find((u: any) => u.settings?.authUserId === authUser.id || u.settings?.auth_user_id === authUser.id);
-          }
+          user = rows.find((u: any) => u.username?.toLowerCase() === reqUsername.toLowerCase());
         }
       }
     } catch (e) {
@@ -1770,13 +1769,14 @@ async function findUserForLuckySpin(reqUsername: string, authUser: any, supabase
     }
   }
 
-  // Emergency auto-synthesis for new accounts so newly registered users are NEVER blocked
+  // 4. Emergency auto-synthesis for requested username so new accounts are NEVER given another user's data
   if (!user && reqUsername) {
     user = {
       username: reqUsername,
       full_name: reqUsername,
-      email: authUser?.email || `${reqUsername}@user.local`,
+      email: `${reqUsername}@user.local`,
       main_balance: 0,
+      reward_balance: 0,
       settings: {
         freeSpinBalance: 1000000,
         bonusSpinBalance: 0,
@@ -1786,6 +1786,7 @@ async function findUserForLuckySpin(reqUsername: string, authUser: any, supabase
       }
     };
     memoryUserStore.set(reqUsername, user);
+    memoryUserStore.set(reqUsername.toLowerCase(), user);
   }
 
   return user;

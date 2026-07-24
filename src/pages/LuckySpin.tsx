@@ -447,11 +447,10 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
       if (session?.access_token) {
         const sessionEmail = session.user?.email?.toLowerCase();
         const activeEmail = currentAccount?.email?.toLowerCase();
-        if (!activeEmail || !sessionEmail || sessionEmail === activeEmail) {
+        if (activeEmail && sessionEmail && sessionEmail === activeEmail) {
           headers['Authorization'] = `Bearer ${session.access_token}`;
         }
       }
-
       const res = await fetch(`/api/lucky-spin/info?username=${encodeURIComponent(activeUsername)}`, { headers });
       if (!res.ok) {
         throw new Error(`Server returned status ${res.status}`);
@@ -582,11 +581,10 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
       if (session?.access_token) {
         const sessionEmail = session.user?.email?.toLowerCase();
         const activeEmail = currentAccount?.email?.toLowerCase();
-        if (!activeEmail || !sessionEmail || sessionEmail === activeEmail) {
+        if (activeEmail && sessionEmail && sessionEmail === activeEmail) {
           headers['Authorization'] = `Bearer ${session.access_token}`;
         }
       }
-
       // Execute backend atomic transaction spin request
       let response = await fetch('/api/lucky-spin/spin', {
         method: 'POST',
