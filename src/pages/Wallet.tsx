@@ -11,6 +11,7 @@ import { useContract } from '../hooks/useContract';
 import { CONFIG } from '../types';
 import { calculateCappingEarnings } from '../utils/capping';
 import { TRANSLATIONS } from '../translations';
+import { claimRewardBalanceToWalletInSupabase } from '../supabase';
 
 const WalletPage: React.FC = () => {
   const {
@@ -61,6 +62,45 @@ const WalletPage: React.FC = () => {
   const [showBonusSchemaModal, setShowBonusSchemaModal] = useState(false);
   const [showQrisGuideModal, setShowQrisGuideModal] = useState(false);
   const [copiedNmid, setCopiedNmid] = useState(false);
+
+  const handleClaimRewardToWallet = async () => {
+    if (!currentAccount) return;
+    const currentRewardBal = state.rewardBalance ?? 0;
+    if (currentRewardBal <= 0) {
+      triggerModal(
+        language === 'id'
+          ? '⚠️ Saldo Reward Anda saat ini 0. Tidak ada saldo reward yang dapat diklaim ke Saldo Wallet.'
+          : '⚠️ Your Reward Balance is currently 0. No reward balance to claim to Wallet.',
+        'warning'
+      );
+      return;
+    }
+
+    const res = await claimRewardBalanceToWalletInSupabase(currentAccount.username, currentRewardBal);
+    let claimedVal = currentRewardBal;
+    let newMain = (state.mainBalance ?? 0) + currentRewardBal;
+    let newReward = 0;
+
+    if (res.success) {
+      claimedVal = res.claimedAmount || currentRewardBal;
+      newMain = res.newMainBalance;
+      newReward = res.newRewardBalance;
+    }
+
+    updateState({
+      mainBalance: newMain,
+      rewardBalance: newReward
+    });
+
+    triggerModal(
+      language === 'id'
+        ? `🎉 BERHASIL DIKLAIM!\n\nSaldo Reward sebesar Rp ${claimedVal.toLocaleString('id-ID')} telah berhasil dipindahkan ke Total Saldo Wallet Anda!\nSaldo Reward kini menjadi Rp 0.`
+        : `🎉 SUCCESSFULLY CLAIMED!\n\nReward Balance of Rp ${claimedVal.toLocaleString('id-ID')} has been transferred to your Total Main Wallet Balance!\nReward Balance is now Rp 0.`,
+      'success'
+    );
+
+    syncFromSupabase();
+  };
 
   // Form States for Withdraw/Transfer
   const [withdrawBank, setWithdrawBank] = useState('BCA');
@@ -285,6 +325,15 @@ const WalletPage: React.FC = () => {
                 <div className="text-sm font-black text-gold-primary">
                   Rp {Math.floor(state.rewardBalance ?? 0).toLocaleString('id-ID')}
                 </div>
+                {(state.rewardBalance ?? 0) > 0 && (
+                  <button
+                    onClick={handleClaimRewardToWallet}
+                    className="mt-1 px-2.5 py-1 rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 text-black font-black text-[9px] hover:brightness-110 active:scale-95 transition shadow-sm cursor-pointer inline-flex items-center gap-1 font-orbitron"
+                  >
+                    <Coins className="w-2.5 h-2.5" />
+                    {language === 'id' ? 'KLAIM KE WALLET' : 'CLAIM TO WALLET'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -387,11 +436,17 @@ const WalletPage: React.FC = () => {
               {t.withdraw}
             </button>
             <button
-              onClick={() => setWalletTab('reward')}
-              className="py-3 bg-gradient-to-br from-yellow-300 to-gold-primary text-black rounded-2xl text-[10px] font-black transition flex flex-col items-center gap-1.5 shadow-lg shadow-gold-primary/10 cursor-pointer"
+              onClick={() => {
+                if ((state.rewardBalance ?? 0) > 0) {
+                  handleClaimRewardToWallet();
+                } else {
+                  setWalletTab('reward');
+                }
+              }}
+              className="py-3 bg-gradient-to-br from-yellow-300 to-gold-primary text-black rounded-2xl text-[10px] font-black transition flex flex-col items-center gap-1.5 shadow-lg shadow-gold-primary/10 cursor-pointer hover:brightness-110 active:scale-95"
             >
               <Coins className="w-4 h-4" />
-              {language === 'id' ? 'KLAIM BONUS' : 'REWARDS'}
+              {(state.rewardBalance ?? 0) > 0 ? (language === 'id' ? 'KLAIM KE WALLET' : 'CLAIM TO WALLET') : (language === 'id' ? 'KLAIM BONUS' : 'REWARDS')}
             </button>
           </div>
 

@@ -2428,35 +2428,58 @@ export default function App() {
       return;
     }
 
-    const res = await claimRewardBalanceToWalletInSupabase(currentAccount.username);
+    // Call Supabase claim with currentRewardBal as amountToClaim
+    const res = await claimRewardBalanceToWalletInSupabase(currentAccount.username, currentRewardBal);
+
+    let claimedVal = currentRewardBal;
+    let newMain = (state.mainBalance ?? 0) + currentRewardBal;
+    let newReward = 0;
+
     if (res.success) {
-      const claimedVal = res.claimedAmount || currentRewardBal;
-      const transferTx: Transaction = {
-        id: 'CLM-WLT-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
-        type: 'transfer',
-        amount: claimedVal,
-        date: Date.now(),
-        description: language === 'id' ? `Klaim Saldo Reward ke Saldo Wallet` : `Claim Reward Balance to Main Wallet`,
-      };
-
-      setState(prev => ({
-        ...prev,
-        mainBalance: res.newMainBalance,
-        rewardBalance: res.newRewardBalance,
-        transactions: [transferTx, ...(prev.transactions || [])],
-      }));
-
-      triggerModal(
-        language === 'id'
-          ? `🎉 BERHASIL DIKLAIM!\n\nSaldo Reward sebesar Rp ${claimedVal.toLocaleString('id-ID')} telah berhasil dipindahkan ke Saldo Wallet Anda!`
-          : `🎉 SUCCESSFULLY CLAIMED!\n\nReward Balance of Rp ${claimedVal.toLocaleString('id-ID')} has been transferred to your Main Wallet Balance!`,
-        'success'
-      );
-
-      syncFromSupabase();
-    } else {
-      triggerModal(`❌ ${res.error || 'Failed to claim reward to wallet'}`, 'danger');
+      claimedVal = res.claimedAmount || currentRewardBal;
+      newMain = res.newMainBalance;
+      newReward = res.newRewardBalance;
     }
+
+    const transferTx: Transaction = {
+      id: 'CLM-WLT-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+      type: 'transfer',
+      amount: claimedVal,
+      date: Date.now(),
+      description: language === 'id' ? `Klaim Saldo Reward ke Saldo Wallet` : `Claim Reward Balance to Main Wallet`,
+    };
+
+    const updatedAccount: UserAccount = {
+      ...currentAccount,
+      state: {
+        ...currentAccount.state,
+        mainBalance: newMain,
+        rewardBalance: newReward,
+        transactions: [transferTx, ...(currentAccount.state?.transactions || [])],
+      }
+    };
+
+    setCurrentAccount(updatedAccount);
+    setAccounts(prev => prev.map(acc => acc.username === updatedAccount.username ? updatedAccount : acc));
+
+    setState(prev => ({
+      ...prev,
+      mainBalance: newMain,
+      rewardBalance: newReward,
+      transactions: [transferTx, ...(prev.transactions || [])],
+    }));
+
+    // Save to local storage & Supabase
+    saveAccountToSupabase(updatedAccount);
+
+    triggerModal(
+      language === 'id'
+        ? `🎉 BERHASIL DIKLAIM!\n\nSaldo Reward sebesar Rp ${claimedVal.toLocaleString('id-ID')} telah berhasil dipindahkan ke Total Saldo Wallet Anda!\nSaldo Reward kini menjadi Rp 0.`
+        : `🎉 SUCCESSFULLY CLAIMED!\n\nReward Balance of Rp ${claimedVal.toLocaleString('id-ID')} has been transferred to your Total Main Wallet Balance!\nReward Balance is now Rp 0.`,
+      'success'
+    );
+
+    syncFromSupabase();
   };
 
   // --- DEPOSIT FLOW ---

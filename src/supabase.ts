@@ -1727,7 +1727,7 @@ export async function claimDailyRewardInSupabase(
 }
 
 // Transfer/claim all accumulated Reward Balance into Main Wallet Balance
-export async function claimRewardBalanceToWalletInSupabase(username: string): Promise<{
+export async function claimRewardBalanceToWalletInSupabase(username: string, amountToClaim?: number): Promise<{
   success: boolean;
   claimedAmount: number;
   newMainBalance: number;
@@ -1745,7 +1745,8 @@ export async function claimRewardBalanceToWalletInSupabase(username: string): Pr
       return { success: false, claimedAmount: 0, newMainBalance: 0, newRewardBalance: 0, error: 'User not found' };
     }
 
-    const currentReward = Number(user.reward_balance) || 0;
+    const dbReward = Number(user.reward_balance) || 0;
+    const currentReward = (amountToClaim && amountToClaim > 0) ? Math.max(dbReward, amountToClaim) : dbReward;
     const currentMain = Number(user.main_balance) || 0;
 
     if (currentReward <= 0) {
