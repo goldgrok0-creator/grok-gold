@@ -2071,7 +2071,9 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
 
       const newFreeSpinBalance = Math.max(0, currentFreeSpinBalance - deduction);
       const newBonusSpinBalance = currentBonusSpinBalance + wonAmount;
-      const newMainBalance = currentMainBalance + wonAmount;
+      const currentRewardBalance = Number(user.reward_balance || 0);
+      const newRewardBalance = currentRewardBalance + wonAmount;
+      const newMainBalance = currentMainBalance; // Main Balance remains UNCHANGED!
 
     const newSpinRecord = {
       id: `SPN-${Date.now()}`,
@@ -2114,12 +2116,14 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
     const updatedUser = {
       ...user,
       main_balance: newMainBalance,
+      reward_balance: newRewardBalance,
       settings: updatedSettings
     };
     memoryUserStore.set(user.username, updatedUser);
 
     const patchBody: any = {
       main_balance: newMainBalance,
+      reward_balance: newRewardBalance,
       settings: updatedSettings
     };
 
@@ -2160,7 +2164,7 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
       const txPayload = {
         id: `TX-SPIN-${Date.now()}`,
         username: user.username,
-        type: 'reward',
+        type: 'lucky_spin_reward',
         amount: wonAmount,
         description: `Hadiah Lucky Spin: ${prize.label} (Potong Free Spin Rp ${deduction.toLocaleString('id-ID')})`,
         created_at: Date.now()
@@ -2186,6 +2190,7 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
       prize: prize,
       newFreeSpinBalance: newFreeSpinBalance,
       newBonusSpinBalance: newBonusSpinBalance,
+      newRewardBalance: newRewardBalance,
       newMainBalance: newMainBalance,
       todaySpins: newTodaySpins,
       maxDailySpins: MAX_DAILY_SPINS,

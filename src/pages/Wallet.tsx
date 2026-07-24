@@ -166,11 +166,11 @@ const WalletPage: React.FC = () => {
       );
       return;
     }
-    if (state.mainBalance < 100000) {
+    if ((state.rewardBalance ?? 0) < 100000) {
       triggerModal(
         language === 'id' 
-          ? '❌ Minimal penarikan saldo adalah Rp 100.000.' 
-          : '❌ Minimum withdrawal amount is Rp 100,000.',
+          ? '❌ Minimal penarikan saldo reward adalah Rp 100.000.' 
+          : '❌ Minimum reward withdrawal amount is Rp 100,000.',
         'warning'
       );
       return;
@@ -196,8 +196,11 @@ const WalletPage: React.FC = () => {
       );
       return;
     }
-    if (rawAmount > state.mainBalance) {
-      triggerModal(t.insufficientBalance, 'danger');
+    if (rawAmount > (state.rewardBalance ?? 0)) {
+      triggerModal(
+        language === 'id' ? '❌ Saldo reward Anda tidak mencukupi!' : '❌ Your reward balance is insufficient!',
+        'danger'
+      );
       return;
     }
     if (!withdrawAccount.trim()) {
@@ -225,8 +228,11 @@ const WalletPage: React.FC = () => {
       );
       return;
     }
-    if (rawAmount > state.mainBalance) {
-      triggerModal(t.insufficientBalance, 'danger');
+    if (rawAmount > (state.rewardBalance ?? 0)) {
+      triggerModal(
+        language === 'id' ? '❌ Saldo reward Anda tidak mencukupi!' : '❌ Your reward balance is insufficient!',
+        'danger'
+      );
       return;
     }
     if (!transferRecipient.trim()) {

@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS users (
   referral_code TEXT UNIQUE,
   invited_by TEXT,
   main_balance NUMERIC DEFAULT 0,
+  reward_balance NUMERIC DEFAULT 0,
   active_contracts INTEGER DEFAULT 0,
   total_earned NUMERIC DEFAULT 0,
   referral_earned NUMERIC DEFAULT 0,
@@ -553,7 +554,19 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
         .filter((t: any) => t.type === 'welcome_bonus' || t.type === 'bonus')
         .reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0);
 
+      const dynSpinRewards = standardUserTxs
+        .filter((t: any) => t.type === 'lucky_spin_reward')
+        .reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0);
+
       const dynTotalEarned = dynMiningProfit + dynReferralEarned + dynRebateEarned + dynWelcomeBonus;
+
+      const dynTotalWithdrawals = userTxs
+        .filter((t: any) => t.type === 'withdraw' && t.status !== 'rejected')
+        .reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0);
+
+      const calculatedRewardBal = Math.max(0, (dynTotalEarned + dynSpinRewards) - dynTotalWithdrawals);
+      const userColRewardBal = Number(user.reward_balance) || 0;
+      const finalRewardBalance = userColRewardBal > 0 ? userColRewardBal : calculatedRewardBal;
 
       const historyList = (user.settings?.luckySpinHistory || []).filter((item: any) => item && item.id !== '1' && item.id !== '2' && item.id !== '3' && item.prize !== 'Boost 5x');
       const totalWonFromHistory = historyList.reduce((sum: number, item: any) => {
@@ -623,7 +636,7 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
           hasPurchased: (Number(user.active_contracts) || 0) > 0,
           profileImage: user.profile_image || null,
           transactions: userTxs,
-          rewardBalance: Number(user.reward_balance) || 0,
+          rewardBalance: finalRewardBalance,
           pendingMiningReward: Number(user.pending_mining_reward) || 0,
           todayProfit: userTxs
             .filter(t => t.type === 'reward' && new Date(t.date).toDateString() === new Date().toDateString())
@@ -925,10 +938,10 @@ export async function createWithdrawalInSupabase(
       console.warn(`Invalid withdrawal amount: ${amount}`);
       return false;
     }
-    // 1. Fetch User balance and active contracts
-    const { data: user } = await supabase.from('users').select('main_balance, active_contracts').eq('username', username).single();
+    // 1. Fetch User reward balance and active contracts
+    const { data: user } = await supabase.from('users').select('reward_balance, active_contracts').eq('username', username).single();
     if (!user) return false;
-    const currentBalance = Number(user.main_balance) || 0;
+    const currentRewardBal = Number(user.reward_balance) || 0;
     const activeContracts = Number(user.active_contracts) || 0;
 
     if (activeContracts < 1) {
@@ -936,14 +949,14 @@ export async function createWithdrawalInSupabase(
       return false;
     }
 
-    if (currentBalance < amount) {
-      console.warn(`Insufficient balance for user ${username} withdrawal. Needed: ${amount}, Has: ${currentBalance}`);
+    if (currentRewardBal < amount) {
+      console.warn(`Insufficient reward balance for user ${username} withdrawal. Needed: ${amount}, Has: ${currentRewardBal}`);
       return false;
     }
 
-    const newBalance = currentBalance - amount;
+    const newRewardBal = currentRewardBal - amount;
 
-    // 2. Perform atomic insert of withdrawal and update of user balance
+    // 2. Perform atomic insert of withdrawal and update of user reward_balance
     const [wdInsert, userUpdate] = await Promise.all([
       supabase.from('withdrawals').insert({
         id,
@@ -955,7 +968,7 @@ export async function createWithdrawalInSupabase(
         account_name: accountName,
         created_at: Date.now()
       }),
-      supabase.from('users').update({ main_balance: newBalance }).eq('username', username)
+      supabase.from('users').update({ reward_balance: newRewardBal }).eq('username', username)
     ]);
 
     if (wdInsert.error || userUpdate.error) {
@@ -1128,6 +1141,7 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
       referral_code: account.referralCode,
       invited_by: account.invitedBy,
       main_balance: account.state.mainBalance,
+      reward_balance: account.state.rewardBalance ?? 0,
       active_contracts: account.state.activeContracts,
       total_earned: account.state.totalEarned,
       referral_earned: account.state.referralEarned,
@@ -1311,17 +1325,17 @@ export async function rejectWithdrawalInSupabase(withdrawId: string): Promise<bo
     const { data: wd } = await supabase.from('withdrawals').select('*').eq('id', withdrawId).single();
     if (!wd || wd.status !== 'pending') return false;
 
-    // 2. Fetch User latest balance for atomic increment
-    const { data: user } = await supabase.from('users').select('main_balance').eq('username', wd.username).single();
+    // 2. Fetch User latest reward_balance for atomic increment
+    const { data: user } = await supabase.from('users').select('reward_balance').eq('username', wd.username).single();
     if (!user) return false;
-    const currentBalance = Number(user.main_balance) || 0;
+    const currentRewardBal = Number(user.reward_balance) || 0;
     const refundAmount = Number(wd.amount) || 0;
-    const newBalance = currentBalance + refundAmount;
+    const newRewardBal = currentRewardBal + refundAmount;
 
-    // 3. Atomically update status to rejected and refund user balance
+    // 3. Atomically update status to rejected and refund user reward_balance
     const [wdUpdate, userUpdate] = await Promise.all([
       supabase.from('withdrawals').update({ status: 'rejected' }).eq('id', withdrawId),
-      supabase.from('users').update({ main_balance: newBalance }).eq('username', wd.username)
+      supabase.from('users').update({ reward_balance: newRewardBal }).eq('username', wd.username)
     ]);
 
     if (wdUpdate.error || userUpdate.error) {
@@ -1511,15 +1525,18 @@ async function distributeReferralCommission(referrer: string, amount: number, bu
 // Claim welcome bonus
 export async function claimWelcomeBonusInSupabase(username: string): Promise<boolean> {
   try {
-    const { data: user } = await supabase.from('users').select('main_balance, welcome_bonus_claimed').eq('username', username).single();
+    const { data: user } = await supabase.from('users').select('reward_balance, welcome_bonus_claimed').eq('username', username).single();
     if (!user || user.welcome_bonus_claimed) return false;
 
     const bonusAmount = CONFIG.WELCOME_BONUS_AMOUNT; // 1,800,000
+    const currentRewardBal = Number(user.reward_balance) || 0;
+    const newRewardBal = currentRewardBal + bonusAmount;
 
     const txId = 'WLC-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
     const [userUpdate, txInsert] = await Promise.all([
       supabase.from('users').update({
+        reward_balance: newRewardBal,
         welcome_bonus_claimed: true
       }).eq('username', username),
       supabase.from('transactions').insert({

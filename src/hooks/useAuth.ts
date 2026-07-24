@@ -313,6 +313,7 @@ export const useAuth = () => {
 
     const defaultUserState: AppState = {
       mainBalance: 0,
+      rewardBalance: 0,
       freeSpinBalance: 1000000,
       bonusSpinBalance: 0,
       activeContracts: 0,

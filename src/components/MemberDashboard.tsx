@@ -236,7 +236,7 @@ export default function MemberDashboard({
           } as any,
           state: {
             ...currentAccount.state,
-            mainBalance: currentAccount.state.mainBalance + calculatedReward + streakBonus,
+            rewardBalance: (currentAccount.state.rewardBalance || 0) + calculatedReward + streakBonus,
             totalEarned: currentAccount.state.totalEarned + calculatedReward + streakBonus,
             lastClaimTime: Date.now(),
             transactions: [newTx, ...currentAccount.state.transactions]
@@ -277,7 +277,7 @@ export default function MemberDashboard({
           ...currentAccount,
           state: {
             ...currentAccount.state,
-            mainBalance: currentAccount.state.mainBalance + bonusAmount,
+            rewardBalance: (currentAccount.state.rewardBalance || 0) + bonusAmount,
             welcomeBonusClaimed: true,
             transactions: [newTx, ...currentAccount.state.transactions]
           }
@@ -411,8 +411,8 @@ export default function MemberDashboard({
       return;
     }
 
-    if (currentAccount.state.mainBalance < withdrawAmount) {
-      triggerModal(t.insufficientBalance, 'danger');
+    if ((currentAccount.state.rewardBalance ?? 0) < withdrawAmount) {
+      triggerModal(language === 'id' ? '❌ Saldo reward Anda tidak mencukupi untuk penarikan ini.' : '❌ Your reward balance is insufficient for this withdrawal.', 'danger');
       return;
     }
 
@@ -448,7 +448,7 @@ export default function MemberDashboard({
           ...currentAccount,
           state: {
             ...currentAccount.state,
-            mainBalance: currentAccount.state.mainBalance - withdrawAmount,
+            rewardBalance: Math.max(0, (currentAccount.state.rewardBalance ?? 0) - withdrawAmount),
             transactions: [newTx, ...currentAccount.state.transactions]
           }
         };

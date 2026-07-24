@@ -20,6 +20,7 @@ export default function Members({
   const [searchQuery, setSearchQuery] = useState('');
   const [editingUsername, setEditingUsername] = useState<string | null>(null);
   const [editBalance, setEditBalance] = useState('');
+  const [editRewardBalance, setEditRewardBalance] = useState('');
   const [editContracts, setEditContracts] = useState('');
 
   // --- FILTERED USERS ---
@@ -43,6 +44,7 @@ export default function Members({
     if (user) {
       setEditingUsername(username);
       setEditBalance((user.state?.mainBalance || 0).toString());
+      setEditRewardBalance((user.state?.rewardBalance || 0).toString());
       setEditContracts((user.state?.activeContracts || 0).toString());
     }
   };
@@ -51,6 +53,7 @@ export default function Members({
     if (!editingUsername) return;
     
     const balanceNum = parseInt(editBalance) || 0;
+    const rewardBalNum = parseInt(editRewardBalance) || 0;
     const contractsNum = parseInt(editContracts) || 0;
 
     const updatedAccounts = accounts.map(acc => {
@@ -60,6 +63,7 @@ export default function Members({
           state: {
             ...acc.state,
             mainBalance: balanceNum,
+            rewardBalance: rewardBalNum,
             activeContracts: contractsNum
           }
         };
@@ -108,8 +112,9 @@ export default function Members({
           <thead>
             <tr className="bg-slate-950 border-b border-slate-800 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
               <th className="py-3 px-4">{language === 'id' ? 'Anggota' : 'User'}</th>
-              <th className="py-3 px-4">{language === 'id' ? 'Kontak' : 'Contracts'}</th>
+              <th className="py-3 px-4">{language === 'id' ? 'Kontrak' : 'Contracts'}</th>
               <th className="py-3 px-4">{language === 'id' ? 'Saldo Utama' : 'Main Balance'}</th>
+              <th className="py-3 px-4">{language === 'id' ? 'Saldo Reward' : 'Reward Balance'}</th>
               <th className="py-3 px-4">{language === 'id' ? 'Total Profit' : 'Total Profit'}</th>
               <th className="py-3 px-4">{language === 'id' ? 'Rujukan' : 'Referred By'}</th>
               <th className="py-3 px-4 text-right">{language === 'id' ? 'Aksi' : 'Actions'}</th>
@@ -134,6 +139,9 @@ export default function Members({
                 </td>
                 <td className="py-3 px-4 font-mono font-bold text-emerald-400">
                   Rp {(user.state?.mainBalance || 0).toLocaleString('id-ID')}
+                </td>
+                <td className="py-3 px-4 font-mono font-bold text-amber-400">
+                  Rp {(user.state?.rewardBalance || 0).toLocaleString('id-ID')}
                 </td>
                 <td className="py-3 px-4 font-mono text-slate-400">
                   Rp {(user.state?.totalEarned || 0).toLocaleString('id-ID')}
@@ -183,16 +191,27 @@ export default function Members({
               <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-                {language === 'id' ? 'Saldo Utama (IDR)' : 'Main Balance (IDR)'}
+                {language === 'id' ? 'Saldo Utama' : 'Main Balance'}
               </label>
               <input
                 type="number"
                 value={editBalance}
                 onChange={(e) => setEditBalance(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs font-mono text-emerald-400 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                {language === 'id' ? 'Saldo Reward' : 'Reward Balance'}
+              </label>
+              <input
+                type="number"
+                value={editRewardBalance}
+                onChange={(e) => setEditRewardBalance(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs font-mono text-amber-400 focus:outline-none"
               />
             </div>
             <div>

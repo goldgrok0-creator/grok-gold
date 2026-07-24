@@ -1823,6 +1823,7 @@ export default function App() {
 
     const defaultUserState: AppState = {
       mainBalance: 0,
+      rewardBalance: 0,
       activeContracts: 0,
       totalEarned: 0,
       referralEarned: 0,

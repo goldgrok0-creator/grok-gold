@@ -105,9 +105,9 @@ export const useWallet = () => {
       return false;
     }
 
-    if (amount > state.mainBalance) {
+    if (amount > (state.rewardBalance ?? 0)) {
       triggerModal(
-        language === 'id' ? '❌ Saldo utama Anda tidak mencukupi!' : '❌ Your main balance is insufficient!',
+        language === 'id' ? '❌ Saldo reward Anda tidak mencukupi!' : '❌ Your reward balance is insufficient!',
         'danger'
       );
       return false;
@@ -160,9 +160,9 @@ export const useWallet = () => {
       return false;
     }
 
-    if (amount > state.mainBalance) {
+    if (amount > (state.rewardBalance ?? 0)) {
       triggerModal(
-        language === 'id' ? '❌ Saldo utama Anda tidak mencukupi!' : '❌ Your main balance is insufficient!',
+        language === 'id' ? '❌ Saldo reward Anda tidak mencukupi!' : '❌ Your reward balance is insufficient!',
         'danger'
       );
       return false;
@@ -180,7 +180,7 @@ export const useWallet = () => {
 
     updateState(prev => ({
       ...prev,
-      mainBalance: prev.mainBalance - amount,
+      rewardBalance: Math.max(0, (prev.rewardBalance ?? 0) - amount),
       transactions: [newTx, ...prev.transactions],
     }), true);
 
