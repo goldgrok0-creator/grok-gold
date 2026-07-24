@@ -168,7 +168,7 @@ export const useContract = () => {
   const simulateDownlinePurchase = () => {
     const levels = [
       { level: 1, pct: 0.10, label: 'Level 1 (Direct)' },
-      { level: 2, pct: 0.03, label: 'Level 2 (Indirect)' },
+      { level: 2, pct: 0.05, label: 'Level 2 (Indirect)' },
       { level: 3, pct: 0.02, label: 'Level 3 (Indirect)' }
     ];
     const picked = levels[Math.floor(Math.random() * levels.length)];
@@ -184,7 +184,7 @@ export const useContract = () => {
 
     const newTx: Transaction = {
       id: 'REF-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
-      type: 'deposit',
+      type: 'referral',
       amount: commission,
       date: Date.now(),
       description: language === 'id'
@@ -194,15 +194,15 @@ export const useContract = () => {
 
     updateState(prev => ({
       ...prev,
-      mainBalance: prev.mainBalance + commission,
+      rewardBalance: (prev.rewardBalance ?? 0) + commission,
       referralEarned: prev.referralEarned + commission,
       transactions: [newTx, ...prev.transactions],
     }), true);
 
     triggerModal(
       language === 'id'
-        ? `⚡ SIMULASI MLM BERHASIL\n\nAnggota Jaringan L${picked.level} Anda (${pickedName}) telah membeli ${qty} Unit Kontrak.\n\nAnda mendapatkan komisi 10% sebesar Rp ${commission.toLocaleString('id-ID')}!`
-        : `⚡ MLM SIMULATION SUCCESS\n\nYour L${picked.level} Network member (${pickedName}) purchased ${qty} Contract Units.\n\nYou have been credited 10% commission of Rp ${commission.toLocaleString('id-ID')}!`,
+        ? `⚡ SIMULASI MLM BERHASIL\n\nAnggota Jaringan L${picked.level} Anda (${pickedName}) telah membeli ${qty} Unit Kontrak.\n\nAnda mendapatkan komisi (${picked.pct * 100}%) sebesar Rp ${commission.toLocaleString('id-ID')} yang ditambahkan ke Saldo Reward!`
+        : `⚡ MLM SIMULATION SUCCESS\n\nYour L${picked.level} Network member (${pickedName}) purchased ${qty} Contract Units.\n\nYou have been credited (${picked.pct * 100}%) commission of Rp ${commission.toLocaleString('id-ID')} to your Reward Balance!`,
       'success'
     );
   };

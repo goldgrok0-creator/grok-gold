@@ -488,7 +488,7 @@ export const HelpPage: React.FC = () => {
     },
     {
       q: language === 'id' ? 'Bagaimana sistem komisi MLM / Network?' : 'How does the network MLM system work?',
-      a: language === 'id' ? 'Sistem kami menggunakan struktur bertingkat: Komisi Sponsor Utama (10%), Rebate Level 1 (5%), dan Level 2 (2%). Komisi langsung masuk ke saldo tunai dan meningkatkan progress capping Anda.' : 'We operate a multi-level referral hierarchy: Direct Sponsor incentives (10%), Generation Level 1 rebates (5%), and Level 2 rebates (2%). Commissions directly load to your balance.'
+      a: language === 'id' ? 'Sistem kami menggunakan struktur bertingkat 3 level: Level 1 (10%), Level 2 (5%), dan Level 3 (2%). Komisi langsung masuk ke Saldo Reward dan dihitung dalam capping 250%.' : 'We operate a 3-level referral hierarchy: Level 1 (10%), Level 2 (5%), and Level 3 (2%). Commissions directly load to your Reward Balance and count toward 250% capping.'
     }
   ];
 

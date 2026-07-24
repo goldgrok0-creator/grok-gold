@@ -146,7 +146,7 @@ export const NetworkPage: React.FC<NetworkPageProps> = ({
               <div className="flex flex-col">
                 <span className="text-slate-100 font-extrabold text-xs">Level 2 (Indirect)</span>
                 <span className="text-[9px] text-slate-400 font-bold">
-                  {language === 'id' ? 'Komisi Referral 3%' : '3% Referral Commission'}
+                  {language === 'id' ? 'Komisi Referral 5%' : '5% Referral Commission'}
                 </span>
               </div>
             </div>
@@ -196,7 +196,7 @@ export const NetworkPage: React.FC<NetworkPageProps> = ({
             </div>
           </div>
           <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/10">
-            <div className="text-lg font-black text-amber-400">3%</div>
+            <div className="text-lg font-black text-amber-400">5%</div>
             <span className="text-[8px] text-slate-400 font-bold block mb-1">LEVEL 2</span>
             <div className="text-[10px] font-bold text-white truncate">
               Rp{' '}

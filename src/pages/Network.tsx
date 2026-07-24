@@ -142,7 +142,7 @@ const NetworkPage: React.FC = () => {
                 <div className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
                 <div className="flex flex-col">
                   <span className="text-slate-100 font-extrabold text-xs">Level 2 (Indirect)</span>
-                  <span className="text-[9px] text-slate-400 font-bold">{language === 'id' ? 'Komisi Referral 3%' : '3% Referral Commission'}</span>
+                  <span className="text-[9px] text-slate-400 font-bold">{language === 'id' ? 'Komisi Referral 5%' : '5% Referral Commission'}</span>
                 </div>
               </div>
               <div className="text-right">

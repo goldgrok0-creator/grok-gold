@@ -320,6 +320,9 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               <div className="flex items-center gap-1.5">
                 <span className="text-sm">🎁</span>
                 <span className="text-xs font-bold text-white">Daily Reward</span>
+                {activeContractsCount === 0 && (
+                  <span className="text-[9px] text-slate-400 font-normal ml-1">(0 Kontrak Aktif)</span>
+                )}
               </div>
             </div>
             <div className="text-right flex items-center gap-3">

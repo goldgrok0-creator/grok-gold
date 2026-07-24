@@ -1240,7 +1240,7 @@ export default function MemberDashboard({
                 <span className="text-[10px] text-yellow-500 font-black tracking-widest uppercase block">{t.referral}</span>
                 <h3 className="text-xl font-black text-white uppercase font-orbitron">{t.referralCommission}</h3>
                 <p className="text-xs text-slate-400 leading-relaxed font-semibold mt-1">
-                  Undang rekan Anda ke GrockGold Mining dan dapatkan komisi instan berjenjang 3 level (Level 1: 10%, Level 2: 3%, Level 3: 2%) dari setiap pembelian kontrak yang mereka lakukan.
+                  Undang rekan Anda ke GrockGold Mining dan dapatkan komisi instan berjenjang 3 level (Level 1: 10%, Level 2: 5%, Level 3: 2%) dari setiap pembelian kontrak yang mereka lakukan.
                 </p>
               </div>
 
@@ -1456,13 +1456,13 @@ export default function MemberDashboard({
                   { q: 'Berapa batas maksimum pendapatan (Capping Rule)?', a: 'Sistem menerapkan aturan capping sebesar 250% dari nilai total kontrak aktif Anda. Ini berarti jika Anda memiliki kontrak senilai Rp 1.800.000, Anda dapat menghasilkan hingga Rp 4.500.000 sebelum kontrak tersebut selesai (expired). Batas ini mencakup semua jenis komisi, rebate harian, dan bonus.' },
                   { q: 'Kapan hasil tambang / reward harian bisa diklaim?', a: 'Hasil tambang harian Anda diproduksi secara real-time dan dapat diklaim setiap 24 jam sekali di menu "Mining Terminal". Setelah diklaim, dana akan langsung masuk ke Saldo Utama Anda.' },
                   { q: 'Berapa minimal transaksi deposit dan penarikan?', a: 'Minimal deposit dana adalah sebesar Rp 100.000, dan minimal penarikan (withdraw) saldo harian adalah sebesar Rp 100.000.' },
-                  { q: 'Bagaimana komisi referral berjenjang bekerja?', a: 'Kami menawarkan bonus kemitraan hingga 3 level kedalaman: Level 1 (Direct) sebesar 10% dari nominal pembelian kontrak downline Anda, Level 2 sebesar 3%, dan Level 3 sebesar 2%. Komisi langsung ditambahkan ke saldo Anda secara real-time.' }
+                  { q: 'Bagaimana komisi referral berjenjang bekerja?', a: 'Kami menawarkan bonus kemitraan hingga 3 level kedalaman: Level 1 (Direct) sebesar 10% dari nominal pembelian kontrak downline Anda, Level 2 sebesar 5%, dan Level 3 sebesar 2%. Komisi langsung ditambahkan ke Saldo Reward Anda secara real-time.' }
                 ] : [
                   { q: 'How do I start generating daily profit?', a: 'First, make a deposit to our official bank account. Once your main balance is updated, navigate to the "Buy Contract" store and buy your desired units. Each active contract unit yields a 4.0% automatic return daily.' },
                   { q: 'What is the maximum earnings limit (Capping Rule)?', a: 'We enforce a 250% capping rule on all active portfolios. If you hold contracts worth Rp 1,800,000, you can earn up to Rp 4,500,000 before the contracts mature and expire. This limit covers all referral rewards, daily yields, and bonuses.' },
                   { q: 'When can I claim my mining yields / daily rewards?', a: 'Mining yields compile continuously in real-time. You can claim them once every 24 hours under the "Mining Terminal" tab. Upon claiming, the funds are instantly added to your Main Balance.' },
                   { q: 'What are the minimum deposit and withdrawal amounts?', a: 'The minimum amount for deposits is Rp 100,000, and the minimum amount for daily withdrawals is also Rp 100,000.' },
-                  { q: 'How does the multi-tier referral system work?', a: 'We offer an lucrative 3-tier affiliate program: Level 1 (Direct) yields 10% of your invitees contract purchases, Level 2 yields 3%, and Level 3 yields 2%. Commissions are paid out instantly in real-time.' }
+                  { q: 'How does the multi-tier referral system work?', a: 'We offer an lucrative 3-tier affiliate program: Level 1 (Direct) yields 10% of your invitees contract purchases, Level 2 yields 5%, and Level 3 yields 2%. Commissions are paid out instantly to your Reward Balance in real-time.' }
                 ]).map((item, idx) => (
                   <div key={idx} className="bg-slate-950/60 p-4 rounded-2xl border border-white/5 space-y-2">
                     <h4 className="text-xs font-black text-amber-300 uppercase tracking-wide flex items-start gap-2">

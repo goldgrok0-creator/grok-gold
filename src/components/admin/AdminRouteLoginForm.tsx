@@ -79,7 +79,7 @@ export default function AdminRouteLoginForm({
           referralCode: '',
           invitedBy: null,
           createdAt: Number(found.created_at) || Date.now(),
-          settings: found.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false },
+          settings: found.settings || { language: 'en', notificationsEnabled: true, autoReinvest: false },
           state: {
             mainBalance: Number(found.main_balance) || 0,
             activeContracts: Number(found.active_contracts) || 0,

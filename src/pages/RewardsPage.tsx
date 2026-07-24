@@ -304,7 +304,7 @@ const RewardsPage: React.FC = () => {
           {/* Level 2 */}
           <div className="p-3 rounded-2xl bg-black/45 border border-amber-500/10 hover:border-amber-500/20 transition-colors">
             <div className="text-[8.5px] text-slate-400 font-bold block uppercase mb-1">LEVEL 2</div>
-            <div className="text-xs font-black text-amber-400 mb-0.5">3% BONUS</div>
+            <div className="text-xs font-black text-amber-400 mb-0.5">5% BONUS</div>
             <div className="text-[9px] text-slate-500 font-bold">{l2Count} {t.partners}</div>
           </div>
 

@@ -314,7 +314,13 @@ export default function CompanyLandingPage({
           <div className="hidden lg:flex items-center gap-4">
             {/* Language Picker */}
             <button 
-              onClick={() => setLanguage(language === 'id' ? 'en' : 'id')}
+              onClick={() => {
+                const nextLang = language === 'id' ? 'en' : 'id';
+                try {
+                  localStorage.setItem('grockgold_lang', nextLang);
+                } catch (e) {}
+                setLanguage(nextLang);
+              }}
               className="px-2.5 py-1 rounded bg-[#100827] hover:bg-purple-950/40 border border-yellow-500/20 text-[10px] text-yellow-400 font-extrabold flex items-center gap-1 cursor-pointer tracking-wider"
             >
               <Globe className="w-3.5 h-3.5" />
@@ -339,7 +345,13 @@ export default function CompanyLandingPage({
           {/* Mobile hamburger trigger */}
           <div className="flex lg:hidden items-center gap-3">
             <button 
-              onClick={() => setLanguage(language === 'id' ? 'en' : 'id')}
+              onClick={() => {
+                const nextLang = language === 'id' ? 'en' : 'id';
+                try {
+                  localStorage.setItem('grockgold_lang', nextLang);
+                } catch (e) {}
+                setLanguage(nextLang);
+              }}
               className="px-2 py-1 rounded bg-[#100827] border border-yellow-500/20 text-[9px] text-yellow-400 font-extrabold flex items-center gap-1 cursor-pointer"
             >
               <Globe className="w-3 h-3" />

@@ -86,7 +86,7 @@ export default function Network({ accounts, language }: NetworkProps) {
             {/* LEVEL 2 */}
             <div className="bg-slate-950/30 border border-slate-800 p-4 rounded-xl">
               <div className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest mb-2 border-b border-slate-800 pb-1">
-                Generation 2 (L2 - 3%)
+                Generation 2 (L2 - 5%)
               </div>
               <div className="space-y-1 max-h-[250px] overflow-y-auto pr-1">
                 {networkData.level2.map(acc => (

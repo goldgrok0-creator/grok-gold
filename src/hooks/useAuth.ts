@@ -128,7 +128,7 @@ export const useAuth = () => {
       referralCode: dbUser.referral_code || '',
       invitedBy: dbUser.invited_by || null,
       createdAt: Number(dbUser.created_at) || Date.now(),
-      settings: dbUser.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false },
+      settings: dbUser.settings || { language: 'en', notificationsEnabled: true, autoReinvest: false },
       state: {
         mainBalance: Number(dbUser.main_balance) || 0,
         freeSpinBalance: rawFreeSpinBal,
@@ -171,7 +171,9 @@ export const useAuth = () => {
       isLoggedIn: true,
     });
 
-    if (finalAccount.settings?.language) {
+    const savedLangAuth1 = localStorage.getItem('grockgold_lang');
+    if (!savedLangAuth1 && (finalAccount.settings?.language === 'en' || finalAccount.settings?.language === 'id')) {
+      localStorage.setItem('grockgold_lang', finalAccount.settings.language);
       setLanguage(finalAccount.settings.language);
     }
 
@@ -202,7 +204,9 @@ export const useAuth = () => {
       isLoggedIn: true,
     });
     
-    if (found.settings?.language) {
+    const savedLangAuth2 = localStorage.getItem('grockgold_lang');
+    if (!savedLangAuth2 && (found.settings?.language === 'en' || found.settings?.language === 'id')) {
+      localStorage.setItem('grockgold_lang', found.settings.language);
       setLanguage(found.settings.language);
     }
     
@@ -297,17 +301,59 @@ export const useAuth = () => {
     const personalReferralCode = 'GGM-' + String(nextNum).padStart(4, '0');
 
     let sponsorUsername: string | null = null;
+    const effectiveRefCode = (refCode || localStorage.getItem('grockgold_ref_code') || '').trim();
 
-    if (refCode) {
-      const sponsor = accounts.find(acc => acc.username.toLowerCase() === refCode.toLowerCase() || acc.referralCode.toLowerCase() === refCode.toLowerCase());
-      if (sponsor) {
-        sponsorUsername = sponsor.username;
-      } else {
+    if (effectiveRefCode) {
+      if (effectiveRefCode.toLowerCase() === username.toLowerCase()) {
         triggerModal(
-          language === 'id' ? '❌ Invalid Referral Code (Kode referral tidak valid!)' : '❌ Invalid Referral Code!',
+          language === 'id' ? '❌ Tidak dapat menggunakan kode referral sendiri!' : '❌ Cannot use your own referral code!',
           'danger'
         );
         return false;
+      }
+
+      const sponsor = accounts.find(acc => acc.username.toLowerCase() === effectiveRefCode.toLowerCase() || (acc.referralCode && acc.referralCode.toLowerCase() === effectiveRefCode.toLowerCase()));
+      if (sponsor) {
+        sponsorUsername = sponsor.username;
+      } else {
+        // Fallback: Check directly in Supabase users table
+        try {
+          let dbSponsor: { username: string; referral_code?: string } | null = null;
+          const { data: byRef } = await supabase
+            .from('users')
+            .select('username, referral_code')
+            .ilike('referral_code', effectiveRefCode)
+            .maybeSingle();
+
+          if (byRef) {
+            dbSponsor = byRef;
+          } else {
+            const { data: byUser } = await supabase
+              .from('users')
+              .select('username, referral_code')
+              .ilike('username', effectiveRefCode)
+              .maybeSingle();
+            if (byUser) {
+              dbSponsor = byUser;
+            }
+          }
+
+          if (dbSponsor?.username) {
+            sponsorUsername = dbSponsor.username;
+          } else {
+            triggerModal(
+              language === 'id' ? '❌ Invalid Referral Code (Kode referral tidak valid!)' : '❌ Invalid Referral Code!',
+              'danger'
+            );
+            return false;
+          }
+        } catch (_) {
+          triggerModal(
+            language === 'id' ? '❌ Invalid Referral Code (Kode referral tidak valid!)' : '❌ Invalid Referral Code!',
+            'danger'
+          );
+          return false;
+        }
       }
     }
 
@@ -363,6 +409,22 @@ export const useAuth = () => {
     const success = await authService.registerUser(newAccount);
 
     if (success) {
+      // Sync local accounts array with new user and update sponsor's Free Spin Balance
+      setAccounts(prev => {
+        const updated = prev.map(acc => {
+          if (sponsorUsername && acc.username.toLowerCase() === sponsorUsername.toLowerCase()) {
+            const oldSpin = acc.settings?.freeSpinBalance ?? 1000000;
+            const newSpin = oldSpin + 50000;
+            return {
+              ...acc,
+              state: { ...acc.state, freeSpinBalance: newSpin },
+              settings: { ...acc.settings, freeSpinBalance: newSpin }
+            };
+          }
+          return acc;
+        });
+        return [...updated, newAccount];
+      });
       try {
         await authService.loginWithSupabase(email, password, false);
       } catch (e) {

@@ -666,6 +666,14 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
           setLuckySpinHistory(data.spinHistory);
         }
 
+        const newSpinTx: Transaction = {
+          id: `TX-SPIN-${Date.now()}`,
+          type: 'lucky_spin_reward',
+          amount: wonAmount,
+          date: Date.now(),
+          description: `Hadiah Lucky Spin: ${prize?.label || 'Cash'}`
+        };
+
         // Update real-time balance from backend result
         updateState(prev => ({
           ...prev,
@@ -673,7 +681,8 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
           bonusSpinBalance: data.newBonusSpinBalance !== undefined ? data.newBonusSpinBalance : ((prev.bonusSpinBalance ?? 0) + wonAmount),
           rewardBalance: data.newRewardBalance !== undefined ? data.newRewardBalance : ((prev.rewardBalance ?? 0) + wonAmount),
           mainBalance: data.newMainBalance ?? prev.mainBalance,
-          totalEarned: prev.totalEarned + wonAmount
+          totalEarned: prev.totalEarned + wonAmount,
+          transactions: wonAmount > 0 ? [newSpinTx, ...(prev.transactions || [])] : (prev.transactions || [])
         }), true);
 
         if (wonAmount > 0) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppState } from '../AppContext';
 import { useAuth } from '../hooks/useAuth';
@@ -49,6 +49,32 @@ export const AuthContainer: React.FC = () => {
   const [regReferralCode, setRegReferralCode] = useState('');
   const [regAgreed, setRegAgreed] = useState(false);
 
+  // --- AUTO-EXTRACT REFERRAL CODE FROM URL OR LOCALSTORAGE ---
+  useEffect(() => {
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      let ref = searchParams.get('ref') || searchParams.get('referral');
+      if (!ref && window.location.hash) {
+        const hashParts = window.location.hash.split('?');
+        if (hashParts[1]) {
+          const hp = new URLSearchParams(hashParts[1]);
+          ref = hp.get('ref') || hp.get('referral');
+        }
+      }
+      if (!ref) {
+        ref = localStorage.getItem('grockgold_ref_code');
+      }
+      if (ref) {
+        const cleaned = ref.trim();
+        setRegReferralCode(cleaned);
+        localStorage.setItem('grockgold_ref_code', cleaned);
+        setAuthScreen('register');
+      }
+    } catch (e) {
+      console.warn('Error extracting referral code in AuthContainer:', e);
+    }
+  }, []);
+
   // --- LOGIN FORM STATES ---
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -66,6 +92,7 @@ export const AuthContainer: React.FC = () => {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    const effectiveRef = regReferralCode || localStorage.getItem('grockgold_ref_code') || '';
     await register(
       regFullName,
       regUsername,
@@ -73,7 +100,7 @@ export const AuthContainer: React.FC = () => {
       regPhone,
       regPassword,
       regConfirmPassword,
-      regReferralCode,
+      effectiveRef,
       regAgreed,
       regCountry
     );

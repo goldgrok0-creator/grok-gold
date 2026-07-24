@@ -482,7 +482,9 @@ const WalletPage: React.FC = () => {
               </div>
               <div className="flex justify-between border-b border-white/5 pb-2">
                 <span className="text-slate-400">🎁 Daily Reward Rate</span>
-                <span className="text-emerald-400 font-extrabold">Rp {dailyYield.toLocaleString('id-ID')} (2%)</span>
+                <span className="text-emerald-400 font-extrabold">
+                  Rp {dailyYield.toLocaleString('id-ID')} (2%/hari{state.activeContracts === 0 ? ' - 0 Kontrak' : ''})
+                </span>
               </div>
               <div className="flex justify-between border-b border-white/5 pb-2">
                 <span className="text-slate-400">👥 Referral Reward</span>

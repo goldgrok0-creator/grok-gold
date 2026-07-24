@@ -1878,10 +1878,98 @@ app.get("/api/lucky-spin/info", async (req, res) => {
 
     let freeSpinBalance = freeSpinFromSb !== undefined
       ? freeSpinFromSb
-      : (typeof user.settings?.freeSpinBalance === 'number' ? user.settings.freeSpinBalance : 1000000);
+      : (typeof user.settings?.freeSpinBalance === 'number'
+          ? user.settings.freeSpinBalance
+          : (user.free_spin_balance !== undefined && user.free_spin_balance !== null ? Number(user.free_spin_balance) : 1000000));
 
-    if (history.length === 0 && (freeSpinBalance <= 0 || freeSpinFromSb === undefined)) {
-      freeSpinBalance = 1000000;
+    // Auto-reconcile any missing referral Free Spin bonuses (+Rp 50.000 per invited member)
+    try {
+      const invCode = user.referral_code || '';
+      const refRes1 = await fetch(`${supabaseUrl}/rest/v1/users?invited_by=ilike.${encodeURIComponent(user.username)}&select=username`, {
+        headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+      });
+      let refList1: any[] = [];
+      if (refRes1.ok) refList1 = await refRes1.json();
+
+      let refList2: any[] = [];
+      if (invCode) {
+        const refRes2 = await fetch(`${supabaseUrl}/rest/v1/users?invited_by=ilike.${encodeURIComponent(invCode)}&select=username`, {
+          headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+        });
+        if (refRes2.ok) refList2 = await refRes2.json();
+      }
+
+      const uniqueRefUsernames = new Set<string>();
+      if (Array.isArray(refList1)) refList1.forEach(r => r.username && uniqueRefUsernames.add(r.username.toLowerCase()));
+      if (Array.isArray(refList2)) refList2.forEach(r => r.username && uniqueRefUsernames.add(r.username.toLowerCase()));
+
+      const totalReferralCount = uniqueRefUsernames.size;
+      if (totalReferralCount > 0) {
+        const txRes = await fetch(`${supabaseUrl}/rest/v1/transactions?username=ilike.${encodeURIComponent(user.username)}&type=eq.referral_spin_bonus&select=id`, {
+          headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+        });
+        let txList: any[] = [];
+        if (txRes.ok) txList = await txRes.json();
+        const awardedCount = Array.isArray(txList) ? txList.length : 0;
+        const missingBonusCount = totalReferralCount - awardedCount;
+
+        if (missingBonusCount > 0) {
+          const bonusToAdd = missingBonusCount * 50000;
+          freeSpinBalance = (freeSpinBalance || 1000000) + bonusToAdd;
+
+          // Upsert updated freeSpinBalance into spin_balances table
+          await fetch(`${supabaseUrl}/rest/v1/spin_balances?on_conflict=username,type`, {
+            method: 'POST',
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'resolution=merge-duplicates'
+            },
+            body: JSON.stringify([
+              { username: user.username, type: 'free', amount: freeSpinBalance, updated_at: new Date().toISOString() }
+            ])
+          }).catch(() => {});
+
+          // Update users settings
+          const updatedSettings = {
+            ...(user.settings || {}),
+            freeSpinBalance: freeSpinBalance
+          };
+          user.settings = updatedSettings;
+          await fetch(`${supabaseUrl}/rest/v1/users?username=ilike.${encodeURIComponent(user.username)}`, {
+            method: 'PATCH',
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ settings: updatedSettings })
+          }).catch(() => {});
+
+          // Log transaction entries
+          for (let i = 0; i < missingBonusCount; i++) {
+            await fetch(`${supabaseUrl}/rest/v1/transactions`, {
+              method: 'POST',
+              headers: {
+                'apikey': supabaseKey,
+                'Authorization': `Bearer ${supabaseKey}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                id: 'REF-SPIN-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+                username: user.username,
+                type: 'referral_spin_bonus',
+                amount: 50000,
+                description: `Bonus Free Spin Referral (+Rp 50.000) dari pendaftaran member baru`,
+                created_at: Date.now()
+              })
+            }).catch(() => {});
+          }
+        }
+      }
+    } catch (refAuditErr) {
+      console.warn("Non-fatal referral spin audit error in /info:", refAuditErr);
     }
 
     const bonusSpinBalance = bonusSpinFromSb !== undefined
@@ -2020,11 +2108,9 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
 
       let currentFreeSpinBalance = freeSpinFromSbSpin !== undefined
         ? freeSpinFromSbSpin
-        : (typeof user.settings?.freeSpinBalance === 'number' ? user.settings.freeSpinBalance : 1000000);
-
-      if (history.length === 0 && (currentFreeSpinBalance <= 0 || freeSpinFromSbSpin === undefined)) {
-        currentFreeSpinBalance = 1000000;
-      }
+        : (typeof user.settings?.freeSpinBalance === 'number'
+            ? user.settings.freeSpinBalance
+            : (user.free_spin_balance !== undefined && user.free_spin_balance !== null ? Number(user.free_spin_balance) : 1000000));
 
       let currentBonusSpinBalance = bonusSpinFromSbSpin !== undefined
         ? bonusSpinFromSbSpin
@@ -2118,6 +2204,8 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
       ...user,
       main_balance: newMainBalance,
       reward_balance: newRewardBalance,
+      free_spin_balance: newFreeSpinBalance,
+      bonus_spin_balance: newBonusSpinBalance,
       settings: updatedSettings
     };
     memoryUserStore.set(user.username, updatedUser);
@@ -2125,6 +2213,8 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
     const patchBody: any = {
       main_balance: newMainBalance,
       reward_balance: newRewardBalance,
+      free_spin_balance: newFreeSpinBalance,
+      bonus_spin_balance: newBonusSpinBalance,
       settings: updatedSettings
     };
 

@@ -144,6 +144,9 @@ export const useProfile = () => {
   };
 
   const changeLanguage = (lang: 'id' | 'en') => {
+    try {
+      localStorage.setItem('grockgold_lang', lang);
+    } catch (e) {}
     setLanguage(lang);
     if (!currentAccount) return;
 

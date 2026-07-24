@@ -241,7 +241,13 @@ export default function App() {
   const [isSplashScreen, setIsSplashScreen] = useState(true);
   const [splashProgress, setSplashProgress] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [language, setLanguage] = useState<'id' | 'en'>('en');
+  const [language, setLanguage] = useState<'id' | 'en'>(() => {
+    try {
+      const saved = localStorage.getItem('grockgold_lang');
+      if (saved === 'id' || saved === 'en') return saved;
+    } catch (e) {}
+    return 'en';
+  });
   const [currentTab, setCurrentTab] = useState<string>('home');
   const prevTabRef = useRef(currentTab);
   const [slideDirection, setSlideDirection] = useState<number>(1);
@@ -555,7 +561,9 @@ export default function App() {
             username: found.username,
             isLoggedIn: true,
           }));
-          if (found.settings?.language) {
+          const savedLang = localStorage.getItem('grockgold_lang');
+          if (!savedLang && (found.settings?.language === 'en' || found.settings?.language === 'id')) {
+            localStorage.setItem('grockgold_lang', found.settings.language);
             setLanguage(found.settings.language);
           }
           if (found.username.toLowerCase() === 'admin') {
@@ -1537,7 +1545,7 @@ export default function App() {
         referralCode: dbUser.referral_code || '',
         invitedBy: dbUser.invited_by || null,
         createdAt: Number(dbUser.created_at) || Date.now(),
-        settings: dbUser.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false },
+        settings: dbUser.settings || { language: 'en', notificationsEnabled: true, autoReinvest: false },
         state: {
           mainBalance: Number(dbUser.main_balance) || 0,
           activeContracts: Number(dbUser.active_contracts) || 0,
@@ -1631,7 +1639,9 @@ export default function App() {
       isLoggedIn: true,
     });
 
-    if (found.settings?.language) {
+    const savedLang1 = localStorage.getItem('grockgold_lang');
+    if (!savedLang1 && (found.settings?.language === 'en' || found.settings?.language === 'id')) {
+      localStorage.setItem('grockgold_lang', found.settings.language);
       setLanguage(found.settings.language);
     }
 
@@ -1666,7 +1676,9 @@ export default function App() {
       isLoggedIn: true,
     });
     
-    if (found.settings?.language) {
+    const savedLang2 = localStorage.getItem('grockgold_lang');
+    if (!savedLang2 && (found.settings?.language === 'en' || found.settings?.language === 'id')) {
+      localStorage.setItem('grockgold_lang', found.settings.language);
       setLanguage(found.settings.language);
     }
     
@@ -1736,14 +1748,14 @@ export default function App() {
     setCurrentTab('home');
   };
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     const fullName = regFullName.trim().toUpperCase();
     const username = regUsername.trim().replace(/\s+/g, '');
     const email = regEmail.trim();
     const phone = regPhone.trim();
     const password = regPassword;
     const confirmPassword = regConfirmPassword;
-    const refCode = regReferralCode.trim();
+    const refCode = (regReferralCode || localStorage.getItem('grockgold_ref_code') || '').trim();
 
     if (!fullName || !username || !email || !phone || !password || !confirmPassword) {
       triggerModal(language === 'id' ? '❌ Semua field wajib diisi kecuali Kode Referral!' : '❌ All fields are mandatory except Referral Code!', 'warning');
@@ -1805,25 +1817,66 @@ export default function App() {
     const personalReferralCode = 'GGM-' + String(nextNum).padStart(4, '0');
 
     let sponsorUsername: string | null = null;
-    let foundSponsor: UserAccount | null = null;
 
     if (refCode) {
-      const sponsor = accounts.find(acc => acc.username.toLowerCase() === refCode.toLowerCase() || acc.referralCode.toLowerCase() === refCode.toLowerCase());
-      if (sponsor) {
-        sponsorUsername = sponsor.username;
-        foundSponsor = sponsor;
-      } else {
+      if (refCode.toLowerCase() === username.toLowerCase()) {
         triggerModal(
-          language === 'id' ? '❌ Invalid Referral Code (Kode referral tidak valid!)' : '❌ Invalid Referral Code!',
+          language === 'id' ? '❌ Tidak dapat menggunakan kode referral sendiri!' : '❌ Cannot use your own referral code!',
           'danger'
         );
         return;
+      }
+
+      const sponsor = accounts.find(acc => acc.username.toLowerCase() === refCode.toLowerCase() || (acc.referralCode && acc.referralCode.toLowerCase() === refCode.toLowerCase()));
+      if (sponsor) {
+        sponsorUsername = sponsor.username;
+      } else {
+        // Fallback: Query Supabase users table directly
+        try {
+          let dbSponsor: { username: string; referral_code?: string } | null = null;
+          const { data: byRef } = await supabase
+            .from('users')
+            .select('username, referral_code')
+            .ilike('referral_code', refCode)
+            .maybeSingle();
+
+          if (byRef) {
+            dbSponsor = byRef;
+          } else {
+            const { data: byUser } = await supabase
+              .from('users')
+              .select('username, referral_code')
+              .ilike('username', refCode)
+              .maybeSingle();
+            if (byUser) {
+              dbSponsor = byUser;
+            }
+          }
+
+          if (dbSponsor?.username) {
+            sponsorUsername = dbSponsor.username;
+          } else {
+            triggerModal(
+              language === 'id' ? '❌ Invalid Referral Code (Kode referral tidak valid!)' : '❌ Invalid Referral Code!',
+              'danger'
+            );
+            return;
+          }
+        } catch (_) {
+          triggerModal(
+            language === 'id' ? '❌ Invalid Referral Code (Kode referral tidak valid!)' : '❌ Invalid Referral Code!',
+            'danger'
+          );
+          return;
+        }
       }
     }
 
     const defaultUserState: AppState = {
       mainBalance: 0,
       rewardBalance: 0,
+      freeSpinBalance: 1000000,
+      bonusSpinBalance: 0,
       activeContracts: 0,
       totalEarned: 0,
       referralEarned: 0,
@@ -1858,12 +1911,33 @@ export default function App() {
         language: language,
         notificationsEnabled: true,
         autoReinvest: false,
+        freeSpinBalance: 1000000,
+        bonusSpinBalance: 0,
+        rewardSpinWallet: 0,
+        luckySpinHistory: [],
+        lastSpinResetAt: 0,
       }
     };
 
     registerUserInSupabase(newAccount).then(res => {
       const isSuccess = typeof res === 'boolean' ? res : res?.success;
       if (isSuccess) {
+        // Synchronize local accounts array with new user and sponsor's Free Spin Bonus
+        setAccounts(prev => {
+          const updated = prev.map(acc => {
+            if (sponsorUsername && acc.username.toLowerCase() === sponsorUsername.toLowerCase()) {
+              const oldSpin = acc.settings?.freeSpinBalance ?? 1000000;
+              const newSpin = oldSpin + 50000;
+              return {
+                ...acc,
+                state: { ...acc.state, freeSpinBalance: newSpin },
+                settings: { ...acc.settings, freeSpinBalance: newSpin }
+              };
+            }
+            return acc;
+          });
+          return [...updated, newAccount];
+        });
         setRegFullName('');
         setRegUsername('');
         setRegEmail('');
@@ -2676,9 +2750,9 @@ export default function App() {
       return;
     }
 
-    if (amount > state.mainBalance) {
+    if (amount > (state.rewardBalance ?? 0)) {
       triggerModal(
-        language === 'id' ? '❌ Saldo utama Anda tidak mencukupi!' : '❌ Your main balance is insufficient!',
+        language === 'id' ? '❌ Saldo Reward Anda tidak mencukupi!' : '❌ Your reward balance is insufficient!',
         'danger'
       );
       return;
@@ -2745,9 +2819,9 @@ export default function App() {
       return;
     }
 
-    if (amount > state.mainBalance) {
+    if (amount > (state.rewardBalance ?? 0)) {
       triggerModal(
-        language === 'id' ? '❌ Saldo utama Anda tidak mencukupi!' : '❌ Your main balance is insufficient!',
+        language === 'id' ? '❌ Saldo Reward Anda tidak mencukupi!' : '❌ Your reward balance is insufficient!',
         'danger'
       );
       return;
@@ -2849,7 +2923,7 @@ export default function App() {
   const simulateDownlinePurchase = () => {
     const levels = [
       { level: 1, pct: 0.10, label: 'Level 1 (Direct)' },
-      { level: 2, pct: 0.03, label: 'Level 2 (Indirect)' },
+      { level: 2, pct: 0.05, label: 'Level 2 (Indirect)' },
       { level: 3, pct: 0.02, label: 'Level 3 (Indirect)' }
     ];
     const picked = levels[Math.floor(Math.random() * levels.length)];
@@ -3526,6 +3600,9 @@ export default function App() {
               language={language}
               toggleLanguage={() => {
                 const nextLang = language === 'id' ? 'en' : 'id';
+                try {
+                  localStorage.setItem('grockgold_lang', nextLang);
+                } catch (e) {}
                 setLanguage(nextLang);
                 triggerModal(
                   nextLang === 'id'
@@ -6970,7 +7047,7 @@ export default function App() {
                   <div>
                     <label className="text-gold-primary text-[10px] block mb-1.5 uppercase flex justify-between">
                       <span>Nominal Penarikan (Rp)</span>
-                      <span className="text-slate-400 font-semibold text-[9px]">Saldo: Rp {state.mainBalance.toLocaleString('id-ID')}</span>
+                      <span className="text-slate-400 font-semibold text-[9px]">Saldo Reward: Rp {(state.rewardBalance ?? 0).toLocaleString('id-ID')}</span>
                     </label>
                     <div className="relative">
                       <span className="absolute left-4 top-3.5 text-slate-400 text-sm font-black">Rp</span>
@@ -7146,7 +7223,7 @@ export default function App() {
                   <div>
                     <label className="text-gold-primary text-[10px] block mb-1.5 uppercase flex justify-between">
                       <span>Nominal Transfer (Rp)</span>
-                      <span className="text-slate-400 font-semibold text-[9px]">Saldo: Rp {state.mainBalance.toLocaleString('id-ID')}</span>
+                      <span className="text-slate-400 font-semibold text-[9px]">Saldo Reward: Rp {(state.rewardBalance ?? 0).toLocaleString('id-ID')}</span>
                     </label>
                     <div className="relative">
                       <span className="absolute left-4 top-3.5 text-slate-400 text-sm font-black">Rp</span>

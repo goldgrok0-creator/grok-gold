@@ -144,7 +144,13 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isSplashScreen, setIsSplashScreen] = useState(true);
   const [splashProgress, setSplashProgress] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [language, setLanguage] = useState<'id' | 'en'>('id');
+  const [language, setLanguage] = useState<'id' | 'en'>(() => {
+    try {
+      const saved = localStorage.getItem('grockgold_lang');
+      if (saved === 'id' || saved === 'en') return saved;
+    } catch (e) {}
+    return 'en';
+  });
   const [currentTab, setCurrentTab] = useState<string>('home');
   const [hideBalance, setHideBalance] = useState(false);
   const [isSyncing, setIsSyncing] = useState(() => {
@@ -302,7 +308,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               username: found.username,
               isLoggedIn: true,
             }));
-            if (found.settings?.language) {
+            const savedLang = localStorage.getItem('grockgold_lang');
+            if (!savedLang && (found.settings?.language === 'en' || found.settings?.language === 'id')) {
+              localStorage.setItem('grockgold_lang', found.settings.language);
               setLanguage(found.settings.language);
             }
           }

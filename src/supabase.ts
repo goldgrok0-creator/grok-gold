@@ -68,14 +68,14 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 export const isSupabaseOffline = false;
 
 const SPIN_ITEMS = [
+  { label: 'Rp 500', color: '#7209b7', value: 500, type: 'cash' },
+  { label: 'Coba Lagi', color: '#1a103c', value: 0, type: 'zonk' },
+  { label: 'Rp 1.000', color: '#b5179e', value: 1000, type: 'cash' },
+  { label: 'Rp 2.000', color: '#f72585', value: 2000, type: 'cash' },
   { label: 'Rp 5.000', color: '#7209b7', value: 5000, type: 'cash' },
   { label: 'ZONK', color: '#1a103c', value: 0, type: 'zonk' },
-  { label: 'Rp 15.000', color: '#b5179e', value: 15000, type: 'cash' },
-  { label: 'Boost 5x', color: '#f72585', value: 5, type: 'boost' },
-  { label: 'Rp 25.000', color: '#7209b7', value: 25000, type: 'cash' },
-  { label: 'ZONK', color: '#1a103c', value: 0, type: 'zonk' },
-  { label: 'Rp 50.000', color: '#da70d6', value: 50000, type: 'cash' },
-  { label: 'Boost 10x', color: '#f8961e', value: 10, type: 'boost' },
+  { label: 'Rp 1.000', color: '#da70d6', value: 1000, type: 'cash' },
+  { label: 'Rp 500', color: '#f8961e', value: 500, type: 'cash' },
 ];
 
 export function getLocalAccounts(): UserAccount[] {
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS users (
   profile_image TEXT,
   pending_mining_reward NUMERIC DEFAULT 0,
   created_at BIGINT,
-  settings JSONB DEFAULT '{"language": "id", "notificationsEnabled": true, "autoReinvest": false}'::jsonb
+  settings JSONB DEFAULT '{"language": "en", "notificationsEnabled": true, "autoReinvest": false}'::jsonb
 );
 
 -- 2. TABLE: deposits
@@ -554,9 +554,19 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
         .filter((t: any) => t.type === 'welcome_bonus' || t.type === 'bonus')
         .reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0);
 
-      const dynSpinRewards = standardUserTxs
-        .filter((t: any) => t.type === 'lucky_spin_reward')
+      const historyList = (user.settings?.luckySpinHistory || []).filter((item: any) => item && item.id !== '1' && item.id !== '2' && item.id !== '3' && item.prize !== 'Boost 5x');
+      const totalWonFromHistory = historyList.reduce((sum: number, item: any) => {
+        if (item && (item.success || item.type === 'cash' || (item.value && item.value > 0)) && typeof item.value === 'number') {
+          return sum + item.value;
+        }
+        return sum;
+      }, 0);
+
+      const rawSpinTxRewards = standardUserTxs
+        .filter((t: any) => t.type === 'lucky_spin_reward' || t.type === 'spin_reward' || (t.description && t.description.toLowerCase().includes('lucky spin')))
         .reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0);
+
+      const dynSpinRewards = Math.max(rawSpinTxRewards, totalWonFromHistory);
 
       const dynTotalEarned = dynMiningProfit + dynReferralEarned + dynRebateEarned + dynWelcomeBonus;
 
@@ -571,14 +581,6 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
       const calculatedRewardBal = Math.max(0, (dynTotalEarned + dynSpinRewards) - dynTotalWithdrawals - dynTotalTransfers);
       const userColRewardBal = (user.reward_balance !== undefined && user.reward_balance !== null) ? Number(user.reward_balance) : undefined;
       const finalRewardBalance = (userColRewardBal !== undefined && !isNaN(userColRewardBal)) ? userColRewardBal : calculatedRewardBal;
-
-      const historyList = (user.settings?.luckySpinHistory || []).filter((item: any) => item && item.id !== '1' && item.id !== '2' && item.id !== '3' && item.prize !== 'Boost 5x');
-      const totalWonFromHistory = historyList.reduce((sum: number, item: any) => {
-        if (item && (item.success || item.type === 'cash' || (item.value && item.value > 0)) && typeof item.value === 'number') {
-          return sum + item.value;
-        }
-        return sum;
-      }, 0);
 
       // Fetch from unified spin_balances table
       const userSpinRows = spinBalances.filter((sb: any) => sb.username?.toLowerCase() === usernameLower);
@@ -850,16 +852,44 @@ export async function registerUserInSupabase(account: UserAccount): Promise<{ su
     }
 
     try {
-      // Award Rp 50,000 Saldo Free Spin to sponsor/inviter
-      if (account.invitedBy) {
-        const { data: sponsorData } = await supabase
+      // Award Rp 50,000 Saldo Free Spin to sponsor/inviter (ONCE per valid unique user registration)
+      if (account.invitedBy && account.invitedBy.toLowerCase() !== account.username.toLowerCase()) {
+        const invTarget = account.invitedBy.trim();
+        let sponsorData: { username: string; settings: any } | null = null;
+
+        // Query by referral_code first, then username (avoids PostgREST .or() syntax hyphen parsing issues)
+        const { data: byRef } = await supabase
           .from('users')
           .select('username, settings')
-          .ilike('username', account.invitedBy)
+          .ilike('referral_code', invTarget)
           .maybeSingle();
 
+        if (byRef) {
+          sponsorData = byRef;
+        } else {
+          const { data: byUser } = await supabase
+            .from('users')
+            .select('username, settings')
+            .ilike('username', invTarget)
+            .maybeSingle();
+          if (byUser) {
+            sponsorData = byUser;
+          }
+        }
+
         if (sponsorData) {
-          const oldSponsorBal = sponsorData.settings?.freeSpinBalance ?? 1000000;
+          // Check current free spin balance from spin_balances table first
+          const { data: sbRow } = await supabase
+            .from('spin_balances')
+            .select('amount')
+            .ilike('username', sponsorData.username)
+            .eq('type', 'free')
+            .maybeSingle();
+
+          const currentSbBal = sbRow?.amount !== undefined && sbRow?.amount !== null ? Number(sbRow.amount) : undefined;
+          const currentSettingBal = sponsorData.settings?.freeSpinBalance !== undefined ? Number(sponsorData.settings.freeSpinBalance) : undefined;
+
+          const oldSponsorBal = currentSbBal ?? currentSettingBal ?? 1000000;
           const newSponsorBal = oldSponsorBal + 50000;
 
           await supabase.from('users').update({
@@ -867,7 +897,7 @@ export async function registerUserInSupabase(account: UserAccount): Promise<{ su
               ...(sponsorData.settings || {}),
               freeSpinBalance: newSponsorBal
             }
-          }).ilike('username', account.invitedBy);
+          }).ilike('username', sponsorData.username);
 
           // Sync sponsor's free spin balance into spin_balances table
           await supabase.from('spin_balances').upsert({
@@ -876,10 +906,22 @@ export async function registerUserInSupabase(account: UserAccount): Promise<{ su
             amount: newSponsorBal,
             updated_at: new Date().toISOString()
           }, { onConflict: 'username,type' });
+
+          // Record transaction log for sponsor's history audit
+          try {
+            await supabase.from('transactions').insert({
+              id: 'REF-SPIN-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+              username: sponsorData.username,
+              type: 'referral_spin_bonus',
+              amount: 50000,
+              description: `Bonus Free Spin Referral (+Rp 50.000) dari pendaftaran member baru (${account.username})`,
+              created_at: Date.now()
+            });
+          } catch {}
         }
       }
     } catch (auditErr) {
-      console.warn('Audit logging non-fatal error:', auditErr);
+      console.warn('Audit referral spin bonus error:', auditErr);
     }
 
     return { success: true };
@@ -1161,6 +1203,8 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
       invited_by: account.invitedBy,
       main_balance: account.state.mainBalance,
       reward_balance: account.state.rewardBalance ?? 0,
+      free_spin_balance: mergedFreeSpinBal,
+      bonus_spin_balance: mergedBonusSpinBal,
       active_contracts: account.state.activeContracts,
       total_earned: account.state.totalEarned,
       referral_earned: account.state.referralEarned,
@@ -1447,9 +1491,9 @@ export async function purchaseContractInSupabase(username: string, units: number
       return false;
     }
 
-    // 3. Distribute MLM network level commissions to referrers (Levels: 10%, 3%, 2%)
+    // 3. Distribute MLM network level commissions to referrers (Levels: 10%, 5%, 2%)
     let currentReferrer = await getInviterUsername(username);
-    const levels = CONFIG.REFERRAL_LEVELS; // [10, 3, 2]
+    const levels = CONFIG.REFERRAL_LEVELS; // [10, 5, 2]
 
     for (let i = 0; i < levels.length; i++) {
       if (!currentReferrer) break;
@@ -1691,7 +1735,7 @@ export async function claimDailyRewardInSupabase(
     const txId = 'CLM-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
     // User settings update
-    const userSettings = user.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false };
+    const userSettings = user.settings || { language: 'en', notificationsEnabled: true, autoReinvest: false };
 
     // Credit directly to reward_balance, main_balance remains UNCHANGED
     const [userUpdate, txInsert] = await Promise.all([
@@ -1786,6 +1830,15 @@ export async function claimRewardBalanceToWalletInSupabase(username: string, amo
       return { success: false, claimedAmount: 0, newMainBalance: currentMain, newRewardBalance: currentReward, error: updateErr.message };
     }
 
+    // Insert transaction log for claiming reward balance
+    await supabase.from('transactions').insert({
+      username: username,
+      type: 'transfer',
+      amount: currentReward,
+      status: 'completed',
+      description: 'Klaim Saldo Reward ke Total Saldo Wallet'
+    });
+
     return {
       success: true,
       claimedAmount: currentReward,
@@ -1807,7 +1860,7 @@ export async function executeLuckySpinInSupabase(username: string): Promise<{ su
       .single();
     if (!user) return { success: false, prizeIndex: 0, error: 'User not found' };
 
-    const settings = user.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false };
+    const settings = user.settings || { language: 'en', notificationsEnabled: true, autoReinvest: false };
     const tickets = typeof settings.spinTickets === 'number' ? settings.spinTickets : 5;
     const count = typeof settings.spinCount === 'number' ? settings.spinCount : 0;
 
@@ -1817,14 +1870,14 @@ export async function executeLuckySpinInSupabase(username: string): Promise<{ su
 
     // Secure database server-side representation of spin wheel elements
     const SPIN_ITEMS_DB = [
+      { label: 'Rp 500', color: '#7209b7', value: 500, type: 'cash' },
+      { label: 'Coba Lagi', color: '#1a103c', value: 0, type: 'zonk' },
+      { label: 'Rp 1.000', color: '#b5179e', value: 1000, type: 'cash' },
+      { label: 'Rp 2.000', color: '#f72585', value: 2000, type: 'cash' },
       { label: 'Rp 5.000', color: '#7209b7', value: 5000, type: 'cash' },
       { label: 'ZONK', color: '#1a103c', value: 0, type: 'zonk' },
-      { label: 'Rp 15.000', color: '#b5179e', value: 15000, type: 'cash' },
-      { label: 'Boost 5x', color: '#f72585', value: 5, type: 'boost' },
-      { label: 'Rp 25.000', color: '#7209b7', value: 25000, type: 'cash' },
-      { label: 'ZONK', color: '#1a103c', value: 0, type: 'zonk' },
-      { label: 'Rp 50.000', color: '#da70d6', value: 50000, type: 'cash' },
-      { label: 'Boost 10x', color: '#f8961e', value: 10, type: 'boost' },
+      { label: 'Rp 1.000', color: '#da70d6', value: 1000, type: 'cash' },
+      { label: 'Rp 500', color: '#f8961e', value: 500, type: 'cash' },
     ];
 
     const prizeIndex = Math.floor(Math.random() * SPIN_ITEMS_DB.length);
