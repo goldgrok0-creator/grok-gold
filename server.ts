@@ -4,7 +4,6 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import { GoogleGenAI, Type } from "@google/genai";
-import { createServer as createViteServer } from "vite";
 import { processTelegramWebhook } from "./src/services/telegramWebhookHandler";
 import { registerTelegramWebhook, removeTelegramWebhook } from "./src/services/telegramWebhookRegister";
 
@@ -2310,6 +2309,7 @@ app.all("/api/telegram/register-webhook", async (req, res) => {
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     console.log("Starting in development mode with Vite HMR integration...");
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

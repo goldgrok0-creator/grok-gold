@@ -1,4 +1,4 @@
-import { registerTelegramWebhook, removeTelegramWebhook } from '../../src/services/telegramWebhookRegister.js';
+import { registerTelegramWebhook, removeTelegramWebhook } from '../../src/services/telegramWebhookRegister';
 
 export default async function handler(req: any, res: any) {
   try {

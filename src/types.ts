@@ -1,6 +1,6 @@
 export interface Transaction {
   id: string;
-  type: 'deposit' | 'withdraw' | 'reward' | 'purchase' | 'referral' | 'rebate' | 'welcome_bonus' | 'bonus' | 'lucky_spin_reward' | 'spin_reward';
+  type: 'deposit' | 'withdraw' | 'reward' | 'purchase' | 'referral' | 'rebate' | 'welcome_bonus' | 'bonus' | 'lucky_spin_reward' | 'spin_reward' | 'transfer';
   amount: number;
   date: number; // timestamp
   description: string;

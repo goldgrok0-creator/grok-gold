@@ -16,14 +16,15 @@ export const useWallet = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
-  const [depositMethod, setDepositMethod] = useState<'bank' | 'crypto'>('bank');
+  const [depositMethod, setDepositMethod] = useState<'bank' | 'qris' | 'crypto'>('qris');
   const [depositProof, setDepositProof] = useState('');
   const [depositProofName, setDepositProofName] = useState('');
   const [isUploadingProof, setIsUploadingProof] = useState(false);
   const [copiedBank, setCopiedBank] = useState(false);
   const [copiedUSDT, setCopiedUSDT] = useState(false);
+  const [copiedQRIS, setCopiedQRIS] = useState(false);
 
-  const deposit = async (amountStr: string, depositMethod: 'bank' | 'crypto', depositProof: string) => {
+  const deposit = async (amountStr: string, depositMethod: 'bank' | 'qris' | 'crypto', depositProof: string) => {
     const numeric = parseInt(amountStr.replace(/[^0-9]/g, '')) || 0;
 
     if (numeric < CONFIG.MIN_DEPOSIT) {
@@ -52,6 +53,8 @@ export const useWallet = () => {
     const depId = 'DEP-' + Math.random().toString(36).substring(2, 9).toUpperCase();
     const paymentLabel = depositMethod === 'bank' 
       ? `Bank (${globalConfig?.bankName || 'BCA'})` 
+      : depositMethod === 'qris'
+      ? `QRIS Instant (${globalConfig?.qrisNmid || 'NMID: ID1024389201928'})`
       : 'USDT Crypto (TRC-20)';
 
     const success = await walletService.createDeposit(depId, currentAccount.username, numeric, paymentLabel, depositProof);
@@ -226,6 +229,8 @@ export const useWallet = () => {
     setCopiedBank,
     copiedUSDT,
     setCopiedUSDT,
+    copiedQRIS,
+    setCopiedQRIS,
     executeDeposit,
     executeWithdraw,
     executeTransfer

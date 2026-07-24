@@ -647,7 +647,8 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
           ...prev,
           freeSpinBalance: data.newFreeSpinBalance,
           bonusSpinBalance: data.newBonusSpinBalance !== undefined ? data.newBonusSpinBalance : ((prev.bonusSpinBalance ?? 0) + wonAmount),
-          mainBalance: data.newMainBalance,
+          rewardBalance: data.newRewardBalance !== undefined ? data.newRewardBalance : ((prev.rewardBalance ?? 0) + wonAmount),
+          mainBalance: data.newMainBalance ?? prev.mainBalance,
           totalEarned: prev.totalEarned + wonAmount
         }), true);
 

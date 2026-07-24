@@ -434,6 +434,9 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
     const transactions = transactionsRes.data || [];
     const spinBalances = spinBalancesRes.data || [];
 
+    // Trigger non-blocking legacy users sync to Supabase Auth
+    syncLegacyUsersToSupabaseAuth().catch(() => {});
+
     // Map into UserAccount structure to ensure seamless frontend compatibility
     return users.map((user: any) => {
       const usernameLower = user.username.toLowerCase();
@@ -639,36 +642,126 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
 // REAL-TIME OPERATIONS & DATABASE SYNCHRONIZERS
 // =========================================================================
 
+// Synchronize legacy users in public.users to Supabase Authentication
+let isSyncingLegacyUsers = false;
+export async function syncLegacyUsersToSupabaseAuth(): Promise<void> {
+  if (isSyncingLegacyUsers) return;
+  isSyncingLegacyUsers = true;
+  try {
+    const { data: legacyUsers, error } = await supabase.from('users').select('*');
+    if (error || !legacyUsers) {
+      isSyncingLegacyUsers = false;
+      return;
+    }
+
+    const redirectUrl = typeof window !== 'undefined' ? window.location.origin : 'https://grok-gold-drab.vercel.app';
+
+    for (const user of legacyUsers) {
+      const existingAuthId = user.settings?.authUserId || user.settings?.auth_user_id;
+      if (!existingAuthId && user.email && user.password) {
+        try {
+          let authId: string | undefined = undefined;
+
+          // Try signing in first (avoids triggering signUp rate limits if account already exists)
+          const { data: signInData } = await supabase.auth.signInWithPassword({
+            email: user.email,
+            password: user.password
+          });
+
+          if (signInData?.user?.id) {
+            authId = signInData.user.id;
+          } else {
+            // Attempt signUp
+            const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+              email: user.email,
+              password: user.password,
+              options: {
+                emailRedirectTo: redirectUrl,
+                data: {
+                  username: user.username,
+                  full_name: user.full_name
+                }
+              }
+            });
+
+            if (signUpError) {
+              if (signUpError.message?.toLowerCase().includes('rate limit')) {
+                console.warn('[Legacy Sync] Rate limit reached. Stopping legacy sync batch.');
+                break;
+              }
+            } else if (signUpData?.user?.id) {
+              authId = signUpData.user.id;
+            }
+          }
+
+          if (authId) {
+            const updatedSettings = {
+              ...(user.settings || {}),
+              authUserId: authId,
+              auth_user_id: authId
+            };
+
+            await supabase.from('users').update({
+              settings: updatedSettings
+            }).eq('username', user.username);
+          }
+        } catch (syncErr) {
+          console.warn(`Sync warning for user ${user.username}:`, syncErr);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error in syncLegacyUsersToSupabaseAuth:', err);
+  } finally {
+    isSyncingLegacyUsers = false;
+  }
+}
+
 // 1. Create User (Registration)
-export async function registerUserInSupabase(account: UserAccount): Promise<boolean> {
+export async function registerUserInSupabase(account: UserAccount): Promise<{ success: boolean; error?: string }> {
   try {
     const freeSpinBal = account.state.freeSpinBalance ?? 1000000;
     const bonusSpinBal = account.state.bonusSpinBalance ?? 0;
     const now = Date.now();
 
-    // Register in Supabase Auth first to obtain auth_user_id
     let authUserId: string | null = null;
+
+    // 1. Try signing in first (in case account was already created in Supabase Auth)
     try {
-      const redirectUrl = typeof window !== 'undefined' ? window.location.origin : 'https://grok-gold-drab.vercel.app';
-      const authRes = await supabase.auth.signUp({
+      const { data: signInData } = await supabase.auth.signInWithPassword({
         email: account.email,
-        password: account.password,
-        options: {
-          emailRedirectTo: redirectUrl,
-          data: {
-            username: account.username,
-            full_name: account.fullName
-          }
-        }
+        password: account.password
       });
-      if (authRes.data?.user?.id) {
-        authUserId = authRes.data.user.id;
+
+      if (signInData?.user?.id) {
+        authUserId = signInData.user.id;
+      } else {
+        // 2. Register in Supabase Auth (best-effort, non-blocking if email rate limited)
+        const redirectUrl = typeof window !== 'undefined' ? window.location.origin : 'https://grok-gold-drab.vercel.app';
+        const authRes = await supabase.auth.signUp({
+          email: account.email,
+          password: account.password,
+          options: {
+            emailRedirectTo: redirectUrl,
+            data: {
+              username: account.username,
+              full_name: account.fullName
+            }
+          }
+        });
+
+        if (authRes.error) {
+          console.warn('Supabase Auth signUp non-fatal warning (proceeding with DB registration):', authRes.error.message);
+        } else if (authRes.data?.user?.id) {
+          authUserId = authRes.data.user.id;
+        }
       }
     } catch (authErr) {
-      console.warn('Auth sign-up optional warning:', authErr);
+      console.warn('Supabase Auth attempt warning:', authErr);
     }
 
-    const payload = {
+    // Prepare payload for public.users table (which uses username as PRIMARY KEY)
+    const payload: any = {
       username: account.username,
       full_name: account.fullName,
       email: account.email,
@@ -688,8 +781,8 @@ export async function registerUserInSupabase(account: UserAccount): Promise<bool
       pending_mining_reward: account.state.pendingMiningReward || 0,
       settings: {
         ...(account.settings || {}),
-        authUserId: authUserId || undefined,
-        auth_user_id: authUserId || undefined,
+        authUserId: authUserId,
+        auth_user_id: authUserId,
         freeSpinBalance: freeSpinBal,
         bonusSpinBalance: bonusSpinBal,
         rewardSpinWallet: bonusSpinBal,
@@ -700,45 +793,30 @@ export async function registerUserInSupabase(account: UserAccount): Promise<bool
 
     let { error } = await supabase.from('users').insert(payload);
     if (error) {
-      console.warn('Error creating user in Supabase:', error.message);
-      return false;
+      console.error('Error creating user in public.users:', error.message);
+      return { success: false, error: error.message };
     }
 
-    // Save initial balances to consolidated spin_balances table
-    let spinBalancesCreated = false;
+    // Best-effort sync initial balances to spin_balances table
     try {
       const { error: sbErr } = await supabase.from('spin_balances').upsert([
         { username: account.username, type: 'free', amount: freeSpinBal, updated_at: new Date().toISOString() },
         { username: account.username, type: 'bonus', amount: bonusSpinBal, updated_at: new Date().toISOString() }
       ], { onConflict: 'username,type' });
 
-      if (!sbErr) {
-        spinBalancesCreated = true;
-      } else {
-        console.warn('Upsert spin_balances error during registration, attempting explicit inserts:', sbErr.message);
-        const { error: freeInsErr } = await supabase.from('spin_balances').insert({ username: account.username, type: 'free', amount: freeSpinBal });
-        const { error: bonusInsErr } = await supabase.from('spin_balances').insert({ username: account.username, type: 'bonus', amount: bonusSpinBal });
-        if (!freeInsErr && !bonusInsErr) {
-          spinBalancesCreated = true;
+      if (sbErr) {
+        const isTableMissing = sbErr.message?.includes('schema cache') || sbErr.message?.includes('does not exist');
+        if (!isTableMissing) {
+          try {
+            await supabase.from('spin_balances').insert([
+              { username: account.username, type: 'free', amount: freeSpinBal },
+              { username: account.username, type: 'bonus', amount: bonusSpinBal }
+            ]);
+          } catch (_) {}
         }
       }
-    } catch (spinErr) {
-      console.warn('Error creating spin_balances record:', spinErr);
-    }
-
-    // Verify records actually exist in spin_balances
-    if (!spinBalancesCreated) {
-      const { data: verifyRows } = await supabase.from('spin_balances').select('type').eq('username', account.username);
-      if (Array.isArray(verifyRows) && verifyRows.length >= 2) {
-        spinBalancesCreated = true;
-      }
-    }
-
-    // Rollback user creation if spin_balances failed to guarantee no half-created accounts
-    if (!spinBalancesCreated) {
-      console.error('Spin balances creation failed. Rolling back user creation for:', account.username);
-      await supabase.from('users').delete().eq('username', account.username);
-      return false;
+    } catch (_) {
+      // Non-fatal fallback: spin balances are stored in users.settings JSON
     }
 
     try {
@@ -774,10 +852,13 @@ export async function registerUserInSupabase(account: UserAccount): Promise<bool
       console.warn('Audit logging non-fatal error:', auditErr);
     }
 
-    return true;
-  } catch (err) {
+    return { success: true };
+  } catch (err: any) {
     console.error('Registration query crash:', err);
-    return false;
+    return {
+      success: false,
+      error: err?.message || 'Terjadi kesalahan sistem saat mendaftar.'
+    };
   }
 }
 
@@ -1068,23 +1149,23 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
       .ilike('username', account.username);
 
     if (error) {
-      console.warn('Supabase update user error:', error.message);
+      console.info('Supabase background user update notice:', error.message || error);
       return false;
     }
 
-    // Sync spin balances to spin_balances table
+    // Sync spin balances to spin_balances table (best-effort)
     try {
       await supabase.from('spin_balances').upsert([
         { username: account.username, type: 'free', amount: mergedFreeSpinBal, updated_at: new Date().toISOString() },
         { username: account.username, type: 'bonus', amount: mergedBonusSpinBal, updated_at: new Date().toISOString() }
       ], { onConflict: 'username,type' });
-    } catch (spinErr) {
-      console.warn('Error saving to spin_balances:', spinErr);
+    } catch (_) {
+      // Non-fatal fallback: spin balances are stored in users.settings JSON
     }
 
     return true;
-  } catch (err) {
-    console.error('Error saving user to Supabase:', err);
+  } catch (err: any) {
+    console.info('Supabase save user network notice:', err?.message || err);
     return false;
   }
 }
@@ -1484,7 +1565,7 @@ export async function claimDailyRewardInSupabase(
   try {
     const { data: user, error: userError } = await supabase
       .from('users')
-      .select('main_balance, pending_mining_reward, total_earned, active_contracts, settings, last_claim_time')
+      .select('main_balance, reward_balance, pending_mining_reward, total_earned, active_contracts, settings, last_claim_time')
       .eq('username', username)
       .single();
 
@@ -1519,6 +1600,7 @@ export async function claimDailyRewardInSupabase(
     }
 
     const currentEarned = Number(user.total_earned) || 0;
+    const currentRewardBal = Number(user.reward_balance) || 0;
 
     const contractValue = activeContracts * CONFIG.PRICE_PER_UNIT;
     const rewardRate = CONFIG.DAILY_REWARD_PERCENT;
@@ -1569,6 +1651,7 @@ export async function claimDailyRewardInSupabase(
 
     const totalCredited = finalRewardCredited;
     const newTotalEarned = currentEarned + totalCredited;
+    const newRewardBalance = currentRewardBal + totalCredited;
     const txId = 'CLM-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
     // User settings update
@@ -1577,6 +1660,7 @@ export async function claimDailyRewardInSupabase(
     // Credit directly to reward_balance, main_balance remains UNCHANGED
     const [userUpdate, txInsert] = await Promise.all([
       supabase.from('users').update({
+        reward_balance: newRewardBalance,
         total_earned: newTotalEarned,
         last_claim_time: now,
         settings: userSettings
@@ -1611,7 +1695,7 @@ export async function claimDailyRewardInSupabase(
 
     return { 
       success: true, 
-      rewardBalance: totalCredited, 
+      rewardBalance: newRewardBalance, 
       totalEarned: newTotalEarned, 
       lastClaimTime: now, 
       claimedAmount: totalCredited 
@@ -1625,12 +1709,63 @@ export async function claimDailyRewardInSupabase(
   }
 }
 
+// Transfer/claim all accumulated Reward Balance into Main Wallet Balance
+export async function claimRewardBalanceToWalletInSupabase(username: string): Promise<{
+  success: boolean;
+  claimedAmount: number;
+  newMainBalance: number;
+  newRewardBalance: number;
+  error?: string;
+}> {
+  try {
+    const { data: user, error: userErr } = await supabase
+      .from('users')
+      .select('main_balance, reward_balance')
+      .eq('username', username)
+      .single();
+
+    if (userErr || !user) {
+      return { success: false, claimedAmount: 0, newMainBalance: 0, newRewardBalance: 0, error: 'User not found' };
+    }
+
+    const currentReward = Number(user.reward_balance) || 0;
+    const currentMain = Number(user.main_balance) || 0;
+
+    if (currentReward <= 0) {
+      return { success: false, claimedAmount: 0, newMainBalance: currentMain, newRewardBalance: 0, error: 'No reward balance available to claim' };
+    }
+
+    const newMain = currentMain + currentReward;
+
+    const { error: updateErr } = await supabase
+      .from('users')
+      .update({
+        main_balance: newMain,
+        reward_balance: 0
+      })
+      .eq('username', username);
+
+    if (updateErr) {
+      return { success: false, claimedAmount: 0, newMainBalance: currentMain, newRewardBalance: currentReward, error: updateErr.message };
+    }
+
+    return {
+      success: true,
+      claimedAmount: currentReward,
+      newMainBalance: newMain,
+      newRewardBalance: 0
+    };
+  } catch (err: any) {
+    return { success: false, claimedAmount: 0, newMainBalance: 0, newRewardBalance: 0, error: err?.message || 'Failed to claim reward balance' };
+  }
+}
+
 // Execute Lucky Spin securely on database/server side
 export async function executeLuckySpinInSupabase(username: string): Promise<{ success: boolean; prizeIndex: number; error?: string }> {
   try {
     const { data: user } = await supabase
       .from('users')
-      .select('main_balance, total_earned, settings')
+      .select('main_balance, reward_balance, total_earned, settings')
       .eq('username', username)
       .single();
     if (!user) return { success: false, prizeIndex: 0, error: 'User not found' };
@@ -1676,10 +1811,10 @@ export async function executeLuckySpinInSupabase(username: string): Promise<{ su
       luckySpinHistory: [historyEntry, ...(settings.luckySpinHistory || [])].slice(0, 10)
     };
 
-    const currentBalance = Number(user.main_balance) || 0;
+    const currentRewardBal = Number(user.reward_balance) || 0;
     const currentEarned = Number(user.total_earned) || 0;
 
-    let updatedBalance = currentBalance;
+    let updatedRewardBal = currentRewardBal;
     let updatedEarned = currentEarned;
 
     const updates: any = {
@@ -1687,9 +1822,9 @@ export async function executeLuckySpinInSupabase(username: string): Promise<{ su
     };
 
     if (prize.type === 'cash') {
-      updatedBalance += prize.value;
+      updatedRewardBal += prize.value;
       updatedEarned += prize.value;
-      updates.main_balance = updatedBalance;
+      updates.reward_balance = updatedRewardBal;
       updates.total_earned = updatedEarned;
     }
 
@@ -1702,7 +1837,7 @@ export async function executeLuckySpinInSupabase(username: string): Promise<{ su
         supabase.from('transactions').insert({
           id: txId,
           username,
-          type: 'reward',
+          type: 'lucky_spin_reward',
           amount: prize.value,
           description: `Hadiah Lucky Spin Wheel: ${prize.label}`,
           created_at: Date.now()

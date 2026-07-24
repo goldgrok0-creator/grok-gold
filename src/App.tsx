@@ -38,6 +38,8 @@ import {
   HelpCircle,
   Gem,
   Truck,
+  QrCode,
+  Sparkles,
   FileBadge,
   ArrowUpRight,
   UserCheck,
@@ -57,7 +59,6 @@ import {
   Send,
   Briefcase,
   ArrowRight,
-  Sparkles,
   TrendingUp,
   CheckCircle,
   Mail,
@@ -72,7 +73,8 @@ import {
   Search,
   Calendar,
   Filter,
-  Clock
+  Clock,
+  Copy
 } from 'lucide-react';
 import { AppState, Transaction, Holder, CONFIG, UserAccount, SystemError, isMemberAccount } from './types';
 import { calculateCappingEarnings } from './utils/capping';
@@ -117,6 +119,7 @@ import {
   purchaseContractInSupabase,
   claimWelcomeBonusInSupabase,
   claimDailyRewardInSupabase,
+  claimRewardBalanceToWalletInSupabase,
   updatePendingMiningRewardInSupabase,
   resetAllDataInSupabase,
   fetchGlobalConfig,
@@ -309,7 +312,12 @@ export default function App() {
     bankName: 'BCA',
     bankNumber: '0562167917',
     bankHolder: 'REZAL PRATAMA',
-    usdtAddress: '0xc87b9611F3655F0A0f3aFE7dBBaCc16cA855aFc4'
+    usdtAddress: '0xc87b9611F3655F0A0f3aFE7dBBaCc16cA855aFc4',
+    qrisMerchantName: 'HITACHIMA, DIGITAL & KREATIF',
+    qrisNmid: 'ID1026555768062',
+    qrisTerminal: 'A01',
+    qrisPrintedBy: '93600914',
+    qrisPrintVersion: 'v0.0.2026.07.23'
   });
 
   // --- REGISTRATION FORM STATES ---
@@ -356,7 +364,9 @@ export default function App() {
 
   // --- WALLET / CORE INPUTS ---
   const [depositValue, setDepositValue] = useState('');
-  const [depositMethod, setDepositMethod] = useState<'bank' | 'crypto'>('bank');
+  const [depositMethod, setDepositMethod] = useState<'bank' | 'qris' | 'crypto'>('qris');
+  const [showQrisGuideModal, setShowQrisGuideModal] = useState(false);
+  const [copiedNmid, setCopiedNmid] = useState(false);
   const [depositProof, setDepositProof] = useState<string | null>(null);
   const [depositProofName, setDepositProofName] = useState<string | null>(null);
   const [isUploadingProof, setIsUploadingProof] = useState(false);
@@ -474,8 +484,8 @@ export default function App() {
   const tAuth = TRANSLATIONS['en'];
 
   // --- ASYNC BACKGROUND SYNC FROM SUPABASE ---
-  const syncFromSupabase = async () => {
-    setIsSyncing(true);
+  const syncFromSupabase = async (showSkeleton = false) => {
+    if (showSkeleton) setIsSyncing(true);
     try {
       const config = await fetchGlobalConfig();
       if (config) {
@@ -596,7 +606,7 @@ export default function App() {
       } catch (err: any) {
         if (isMounted) {
           setServerTimeOffset(0);
-          console.warn('[Time Sync] Server time endpoint unavailable, using local device time fallback:', err?.message || err);
+          console.debug('[Time Sync] Server time endpoint unavailable, using local device time fallback:', err?.message || err);
         }
       }
     };
@@ -886,7 +896,10 @@ export default function App() {
       const totalPortfolio = state.activeContracts * CONFIG.PRICE_PER_UNIT;
       const maxAllowed = totalPortfolio * CONFIG.CAPPING_PERCENT;
       const currentCappingEarnings = (state.transactions || [])
-        .filter(t => t.type === 'reward' || t.type === 'referral' || t.type === 'rebate')
+        .filter(t => (t.type === 'reward' || t.type === 'referral' || t.type === 'rebate') &&
+                     t.type !== 'lucky_spin_reward' &&
+                     t.type !== 'spin_reward' &&
+                     !(t.description && t.description.toLowerCase().includes('lucky spin')))
         .reduce((sum, item) => sum + item.amount, 0);
       const isCapped = currentCappingEarnings >= maxAllowed;
 
@@ -1847,8 +1860,9 @@ export default function App() {
       }
     };
 
-    registerUserInSupabase(newAccount).then(success => {
-      if (success) {
+    registerUserInSupabase(newAccount).then(res => {
+      const isSuccess = typeof res === 'boolean' ? res : res?.success;
+      if (isSuccess) {
         setRegFullName('');
         setRegUsername('');
         setRegEmail('');
@@ -1878,7 +1892,10 @@ export default function App() {
         );
         setCurrentTab('home');
       } else {
-        triggerModal(language === 'id' ? '❌ Gagal membuat akun. Username atau Email mungkin sudah terdaftar.' : '❌ Failed to create account.', 'danger');
+        const errorMsg = (typeof res === 'object' && res?.error)
+          ? res.error
+          : (language === 'id' ? 'Gagal membuat akun. Username atau Email mungkin sudah terdaftar.' : 'Failed to create account.');
+        triggerModal(`❌ ${errorMsg}`, 'danger');
       }
     });
   };
@@ -2395,6 +2412,52 @@ export default function App() {
     }
   };
 
+  // --- CLAIM REWARD BALANCE TO MAIN WALLET ---
+  const handleClaimRewardToWallet = async () => {
+    if (!currentAccount) return;
+
+    const currentRewardBal = state.rewardBalance ?? 0;
+    if (currentRewardBal <= 0) {
+      triggerModal(
+        language === 'id'
+          ? '⚠️ Saldo Reward Anda saat ini 0. Tidak ada saldo reward yang dapat diklaim ke Saldo Wallet.'
+          : '⚠️ Your Reward Balance is currently 0. No reward balance to claim to Wallet.',
+        'warning'
+      );
+      return;
+    }
+
+    const res = await claimRewardBalanceToWalletInSupabase(currentAccount.username);
+    if (res.success) {
+      const claimedVal = res.claimedAmount || currentRewardBal;
+      const transferTx: Transaction = {
+        id: 'CLM-WLT-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+        type: 'transfer',
+        amount: claimedVal,
+        date: Date.now(),
+        description: language === 'id' ? `Klaim Saldo Reward ke Saldo Wallet` : `Claim Reward Balance to Main Wallet`,
+      };
+
+      setState(prev => ({
+        ...prev,
+        mainBalance: res.newMainBalance,
+        rewardBalance: res.newRewardBalance,
+        transactions: [transferTx, ...(prev.transactions || [])],
+      }));
+
+      triggerModal(
+        language === 'id'
+          ? `🎉 BERHASIL DIKLAIM!\n\nSaldo Reward sebesar Rp ${claimedVal.toLocaleString('id-ID')} telah berhasil dipindahkan ke Saldo Wallet Anda!`
+          : `🎉 SUCCESSFULLY CLAIMED!\n\nReward Balance of Rp ${claimedVal.toLocaleString('id-ID')} has been transferred to your Main Wallet Balance!`,
+        'success'
+      );
+
+      syncFromSupabase();
+    } else {
+      triggerModal(`❌ ${res.error || 'Failed to claim reward to wallet'}`, 'danger');
+    }
+  };
+
   // --- DEPOSIT FLOW ---
   const formatDepositAmount = (val: string) => {
     const clean = val.replace(/[^0-9]/g, '');
@@ -2517,6 +2580,8 @@ export default function App() {
 
     const paymentLabel = depositMethod === 'bank' 
       ? `Bank (${globalConfig?.bankName || 'BCA'})` 
+      : depositMethod === 'qris'
+      ? `QRIS Instant (${globalConfig?.qrisNmid || 'NMID: ID1024389201928'})`
       : 'USDT Crypto (TRC-20)';
 
     createDepositInSupabase(depId, currentAccount.username, numeric, paymentLabel, publicUrl).then(success => {
@@ -2932,7 +2997,7 @@ export default function App() {
       if (prize.type === 'cash') {
         const newTx: Transaction = {
           id: historyEntry.id,
-          type: 'reward',
+          type: 'lucky_spin_reward',
           amount: prize.value,
           date: Date.now(),
           description: language === 'id' ? `Hadiah Lucky Spin Wheel` : `Lucky Spin Wheel Prize`,
@@ -2941,6 +3006,7 @@ export default function App() {
         updateState(prev => ({
           ...prev,
           rewardBalance: (prev.rewardBalance ?? 0) + prize.value,
+          bonusSpinBalance: (prev.bonusSpinBalance ?? 0) + prize.value,
           totalEarned: prev.totalEarned + prize.value,
           transactions: [newTx, ...prev.transactions],
         }));
@@ -4208,7 +4274,7 @@ export default function App() {
                           <button
                             onClick={async () => {
                               setIsSyncing(true);
-                              await syncFromSupabase();
+                              await syncFromSupabase(true);
                               triggerModal(
                                 language === 'id'
                                   ? '✅ Sinkronisasi database berhasil! Data Anda telah diperbarui.'
@@ -5021,6 +5087,7 @@ export default function App() {
                   totalEarned={totalEarned}
                   triggerWithdrawFlow={triggerWithdrawFlow}
                   handleClaimYield={handleClaimYield}
+                  handleClaimRewardToWallet={handleClaimRewardToWallet}
                   miningProfit={miningProfit}
                   referralReward={referralReward}
                   rebateReward={rebateReward}
@@ -5396,7 +5463,30 @@ export default function App() {
                       {language === 'id' ? 'PILIH METODE PEMBAYARAN RESMI' : 'SELECT OFFICIAL PAYMENT METHOD'}
                     </label>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* QRIS INSTANT BUTTON */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDepositMethod('qris');
+                          setShowQrisGuideModal(true);
+                        }}
+                        className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 cursor-pointer relative overflow-hidden ${
+                          depositMethod === 'qris'
+                            ? 'bg-gradient-to-b from-purple-600/20 to-fuchsia-600/10 border-purple-500 text-white shadow-lg shadow-purple-500/10'
+                            : 'bg-black/35 border-white/5 text-slate-400 hover:border-white/10 hover:bg-black/50'
+                        }`}
+                      >
+                        {depositMethod === 'qris' && (
+                          <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-purple-400 shadow-lg shadow-purple-400" />
+                        )}
+                        <QrCode className={`w-6 h-6 ${depositMethod === 'qris' ? 'text-purple-400' : 'text-slate-500'}`} />
+                        <div className="text-center">
+                          <span className="text-xs font-black uppercase tracking-wider block">QRIS Instant</span>
+                          <span className="text-[9px] text-slate-500 block mt-0.5">DANA, OVO, GoPay, Mobile Banking</span>
+                        </div>
+                      </button>
+
                       {/* BANK LOCAL BUTTON */}
                       <button
                         type="button"
@@ -5433,7 +5523,7 @@ export default function App() {
                         <Coins className={`w-6 h-6 ${depositMethod === 'crypto' ? 'text-emerald-400' : 'text-slate-500'}`} />
                         <div className="text-center">
                           <span className="text-xs font-black uppercase tracking-wider block">Crypto USDT</span>
-                          <span className="text-[9px] text-slate-500 block mt-0.5">BEP-20 Network Standard</span>
+                          <span className="text-[9px] text-slate-500 block mt-0.5">TRC-20 Network Standard</span>
                         </div>
                       </button>
                     </div>
@@ -5495,7 +5585,183 @@ export default function App() {
 
                     {/* BENTO BLOCK B: PAYMENT GATEWAY CARDS */}
                     <div className="bg-[#0e061c] border border-white/5 rounded-3xl p-5 shadow-xl flex flex-col justify-between">
-                      {depositMethod === 'bank' ? (
+                      {depositMethod === 'qris' ? (
+                        /* OFFICIAL INDONESIAN QRIS STAND CARD */
+                        <div className="space-y-4 h-full flex flex-col justify-between">
+                          <div>
+                            <div className="flex flex-wrap justify-between items-center gap-2 mb-2.5">
+                              <span className="text-xs font-black text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
+                                <QrCode className="w-4 h-4 text-purple-400" />
+                                {language === 'id' ? 'QRIS INSTANT PAYMENT' : 'QRIS INSTANT PAYMENT'}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowQrisGuideModal(true)}
+                                  className="text-[10px] font-black bg-purple-600 hover:bg-purple-500 text-white px-2.5 py-1 rounded-lg transition shadow-md shadow-purple-600/20 uppercase flex items-center gap-1 cursor-pointer"
+                                >
+                                  <HelpCircle className="w-3.5 h-3.5" />
+                                  <span>{language === 'id' ? 'Cara Bayar' : 'How to Pay'}</span>
+                                </button>
+                                <span className="text-[10px] font-black bg-purple-600/20 text-purple-300 px-2 py-1 rounded-md border border-purple-500/20 uppercase animate-pulse">
+                                  ⚡ INSTANT
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* OFFICIAL QRIS STAND DISPLAY CARD MATCHING ASPI SPEC */}
+                            <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-2xl relative overflow-hidden border border-slate-200 text-slate-900 select-none max-w-sm mx-auto">
+                              {/* Red triangle corner top left */}
+                              <div className="absolute top-0 left-0 w-24 h-24 overflow-hidden pointer-events-none">
+                                <div className="bg-red-600 w-32 h-12 -rotate-45 -translate-x-12 -translate-y-2 shadow-md"></div>
+                              </div>
+
+                              {/* Red curved corner bottom right */}
+                              <div className="absolute bottom-0 right-0 w-36 h-28 overflow-hidden pointer-events-none">
+                                <div className="bg-gradient-to-l from-red-600 to-red-500 w-44 h-24 rounded-tl-full translate-x-6 translate-y-6 shadow-lg"></div>
+                              </div>
+
+                              {/* Top Header Row */}
+                              <div className="flex justify-between items-start pt-1 pb-2 border-b border-slate-200 relative z-10">
+                                <div className="flex items-center gap-2 pl-4">
+                                  <div className="flex flex-col text-left">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-xl font-black tracking-tighter text-black font-mono leading-none">QRIS</span>
+                                      <div className="w-1.5 h-1.5 bg-red-600 rounded-sm"></div>
+                                    </div>
+                                    <span className="text-[7px] font-extrabold text-slate-800 leading-tight uppercase tracking-tight">
+                                      QR Code Standar<br/>Pembayaran Nasional
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* GPN Logo */}
+                                <div className="flex items-center gap-1 pr-1">
+                                  <div className="text-right">
+                                    <span className="text-[12px] font-black text-red-600 tracking-tighter italic block leading-none">GPN</span>
+                                    <span className="text-[5.5px] font-extrabold text-slate-600 tracking-widest block">GERAKAN NAIK</span>
+                                  </div>
+                                  <div className="w-5 h-5 bg-red-600 rounded-full flex items-center justify-center text-white text-[9px] font-black shadow-sm">
+                                    🦅
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Merchant Info Center */}
+                              <div className="text-center py-2 relative z-10 space-y-0.5">
+                                <h3 className="text-xs sm:text-sm font-black text-black tracking-wide uppercase">
+                                  {globalConfig?.qrisMerchantName || 'HITACHIMA, DIGITAL & KREATIF'}
+                                </h3>
+                                <div className="flex items-center justify-center gap-1">
+                                  <p className="text-[10px] font-mono font-extrabold text-slate-800">
+                                    NMID: {globalConfig?.qrisNmid || 'ID1026555768062'}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nmid = globalConfig?.qrisNmid || 'ID1026555768062';
+                                      navigator.clipboard.writeText(nmid);
+                                      triggerModal(language === 'id' ? 'NMID QRIS disalin!' : 'NMID copied!', 'info');
+                                    }}
+                                    className="text-[8px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded border border-slate-300 transition active:scale-95 cursor-pointer"
+                                  >
+                                    COPY
+                                  </button>
+                                </div>
+                                <p className="text-[9px] font-mono font-bold text-slate-600">
+                                  {globalConfig?.qrisTerminal || 'A01'}
+                                </p>
+                              </div>
+
+                              {/* QR Code Canvas/SVG */}
+                              <div className="my-2 p-2 bg-white rounded-xl border border-slate-200 shadow-inner flex flex-col items-center justify-center relative z-10 max-w-[210px] mx-auto">
+                                {globalConfig?.qrisImage ? (
+                                  <img src={globalConfig.qrisImage} alt="QRIS Code" className="w-44 h-44 object-contain rounded-lg" />
+                                ) : (
+                                  <div className="w-44 h-44 relative flex flex-col items-center justify-center bg-white p-2">
+                                    <svg viewBox="0 0 100 100" className="w-full h-full text-black">
+                                      {/* Top Left Finder */}
+                                      <path d="M0,0 h30 v30 h-30 z M4,4 v22 h22 v-22 z M8,8 h14 v14 h-14 z" fill="currentColor" />
+                                      {/* Top Right Finder */}
+                                      <path d="M70,0 h30 v30 h-30 z M74,4 v22 h22 v-22 z M78,8 h14 v14 h-14 z" fill="currentColor" />
+                                      {/* Bottom Left Finder */}
+                                      <path d="M0,70 h30 v30 h-30 z M4,74 v22 h22 v-22 z M8,78 h14 v14 h-14 z" fill="currentColor" />
+                                      
+                                      {/* Precise QR pattern modules */}
+                                      <rect x="35" y="2" width="6" height="6" fill="currentColor" />
+                                      <rect x="45" y="8" width="10" height="5" fill="currentColor" />
+                                      <rect x="38" y="18" width="18" height="5" fill="currentColor" />
+                                      <rect x="60" y="5" width="5" height="12" fill="currentColor" />
+                                      
+                                      <rect x="2" y="36" width="12" height="6" fill="currentColor" />
+                                      <rect x="18" y="34" width="12" height="8" fill="currentColor" />
+                                      <rect x="34" y="32" width="16" height="14" fill="currentColor" />
+                                      <rect x="54" y="35" width="10" height="6" fill="currentColor" />
+                                      <rect x="68" y="32" width="8" height="12" fill="currentColor" />
+                                      <rect x="80" y="35" width="16" height="12" fill="currentColor" />
+                                      
+                                      <rect x="36" y="52" width="10" height="14" fill="currentColor" />
+                                      <rect x="50" y="50" width="14" height="8" fill="currentColor" />
+                                      <rect x="68" y="52" width="12" height="12" fill="currentColor" />
+                                      <rect x="84" y="52" width="12" height="8" fill="currentColor" />
+                                      
+                                      <rect x="35" y="72" width="8" height="14" fill="currentColor" />
+                                      <rect x="48" y="70" width="16" height="8" fill="currentColor" />
+                                      <rect x="68" y="72" width="10" height="10" fill="currentColor" />
+                                      <rect x="82" y="68" width="14" height="14" fill="currentColor" />
+                                      
+                                      <rect x="38" y="88" width="18" height="8" fill="currentColor" />
+                                      <rect x="60" y="86" width="12" height="10" fill="currentColor" />
+                                      <rect x="76" y="86" width="18" height="10" fill="currentColor" />
+                                    </svg>
+
+                                    {/* Center QRIS logo badge */}
+                                    <div className="absolute inset-0 m-auto w-8 h-8 bg-red-600 rounded-md border-2 border-white flex items-center justify-center shadow-lg z-10">
+                                      <span className="text-[7px] font-black text-white tracking-tighter">QRIS</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Footer Taglines & Verification details */}
+                              <div className="pt-1 text-center relative z-10">
+                                <p className="text-[9px] font-black text-black tracking-widest uppercase">
+                                  SATU QRIS UNTUK SEMUA
+                                </p>
+                                <p className="text-[7.5px] font-medium text-slate-600">
+                                  Cek aplikasi penyelenggara di: <span className="font-bold text-slate-800">www.aspi-qris.id</span>
+                                </p>
+                              </div>
+
+                              {/* Bottom Row metadata & Payment Guide */}
+                              <div className="mt-2.5 pt-2 border-t border-slate-200 flex justify-between items-end relative z-10 text-[7px] text-slate-600">
+                                <div className="text-left font-mono leading-tight">
+                                  <span className="block">Dicetak oleh: {globalConfig?.qrisPrintedBy || '93600914'}</span>
+                                  <span className="block">Versi cetak: {globalConfig?.qrisPrintVersion || 'v0.0.2026.07.23'}</span>
+                                </div>
+
+                                <div className="text-right text-white">
+                                  <span className="text-[6.5px] font-black text-slate-800 uppercase block mb-0.5">Cara pembayaran QRIS:</span>
+                                  <div className="flex items-center gap-1 bg-red-600 px-2 py-0.5 rounded-full text-[6px] font-bold shadow-sm">
+                                    <span>Buka Aplikasi</span>
+                                    <span>➔</span>
+                                    <span>Scan</span>
+                                    <span>➔</span>
+                                    <span>Bayar</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-[9.5px] text-purple-200/80 bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 leading-relaxed mt-3">
+                            <span className="font-extrabold text-purple-300 block uppercase mb-0.5">⚡ PROSES DEPOSIT INSTAN:</span>
+                            {language === 'id' 
+                              ? 'Scan QRIS di atas dengan DANA, OVO, GoPay, ShopeePay, atau Mobile Banking pilihan Anda. Tanpa biaya admin 24/7.' 
+                              : 'Scan the QRIS code above with DANA, OVO, GoPay, ShopeePay, or your Mobile Banking app. Zero admin fees 24/7.'}
+                          </div>
+                        </div>
+                      ) : depositMethod === 'bank' ? (
                         /* VIP BANK BCA CARD VISUAL */
                         <div className="space-y-4 h-full flex flex-col justify-between">
                           <div>
@@ -7178,6 +7444,192 @@ export default function App() {
 
         </div>
       )}
+
+      {/* HOW TO PAY QRIS MODAL */}
+      <AnimatePresence>
+        {showQrisGuideModal && (
+          <div className="fixed inset-0 z-[199999] flex items-center justify-center p-3 sm:p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowQrisGuideModal(false)}
+              className="fixed inset-0 bg-black/85 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              className="relative w-full max-w-md bg-gradient-to-b from-[#1c0c36] via-[#120726] to-[#0a0316] border border-purple-500/35 rounded-3xl p-5 sm:p-6 text-left shadow-2xl z-10 space-y-4 max-h-[90vh] overflow-y-auto"
+            >
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={() => setShowQrisGuideModal(false)}
+                className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {/* Title Header */}
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-600 to-purple-600 flex items-center justify-center shadow-lg shadow-red-600/20 shrink-0">
+                  <QrCode className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <span className="text-[9px] font-black bg-red-600/20 text-red-400 px-2 py-0.5 rounded border border-red-500/30 uppercase tracking-widest block w-fit mb-0.5">
+                    PETUNJUK PEMBAYARAN
+                  </span>
+                  <h3 className="text-base font-extrabold text-white leading-tight">
+                    {language === 'id' ? 'Cara Bayar via QRIS' : 'How to Pay via QRIS'}
+                  </h3>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-300 leading-relaxed bg-purple-950/30 p-3 rounded-2xl border border-purple-500/15">
+                {language === 'id' 
+                  ? 'Gunakan aplikasi Mobile Banking (BCA, Mandiri, BRI, BNI) atau e-Wallet (DANA, OVO, GoPay, ShopeePay, LinkAja) untuk memindai kode QRIS.' 
+                  : 'Use Mobile Banking (BCA, Mandiri, BRI, BNI) or e-Wallet (DANA, OVO, GoPay, ShopeePay) to scan the QRIS code.'}
+              </p>
+
+              {/* COPY NMID PROMINENT BANNER */}
+              <div className="bg-gradient-to-r from-purple-900/60 via-indigo-950/60 to-purple-900/60 border border-purple-500/40 rounded-2xl p-3.5 space-y-2 shadow-lg">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                    {language === 'id' ? 'NMID RESMI MERCHANT:' : 'OFFICIAL MERCHANT NMID:'}
+                  </span>
+                  <span className="text-[9px] font-mono font-black text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded">
+                    {globalConfig?.qrisMerchantName || 'HITACHIMA, DIGITAL & KREATIF'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between bg-black/60 p-2.5 rounded-xl border border-white/10 gap-2">
+                  <span className="text-sm font-mono font-black text-purple-200 tracking-wider">
+                    {globalConfig?.qrisNmid || 'ID1026555768062'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nmid = globalConfig?.qrisNmid || 'ID1026555768062';
+                      navigator.clipboard.writeText(nmid);
+                      setCopiedNmid(true);
+                      setTimeout(() => setCopiedNmid(false), 2500);
+                      triggerModal(language === 'id' ? 'NMID QRIS berhasil disalin!' : 'QRIS NMID copied!', 'info');
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition active:scale-95 cursor-pointer shrink-0 ${
+                      copiedNmid 
+                        ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20' 
+                        : 'bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white hover:brightness-110 shadow-lg shadow-purple-600/20'
+                    }`}
+                  >
+                    {copiedNmid ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{language === 'id' ? 'Disalin!' : 'Copied!'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>{language === 'id' ? 'Salin NMID' : 'Copy NMID'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* STEP BY STEP GUIDE */}
+              <div className="space-y-2.5 pt-1">
+                <span className="text-[10px] font-black text-purple-300 uppercase tracking-wider block">
+                  {language === 'id' ? '5 LANGKAH MUDAH PEMBAYARAN:' : '5 EASY PAYMENT STEPS:'}
+                </span>
+
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-start gap-3 bg-black/40 p-2.5 rounded-xl border border-white/5">
+                    <span className="w-5 h-5 rounded-full bg-purple-600/30 text-purple-300 font-black text-[10px] flex items-center justify-center shrink-0 mt-0.5 border border-purple-500/30">
+                      1
+                    </span>
+                    <div>
+                      <p className="font-bold text-white">
+                        {language === 'id' ? 'Buka Aplikasi Bank / e-Wallet' : 'Open Banking or e-Wallet App'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        BCA Mobile, Livin' Mandiri, BRImo, DANA, OVO, GoPay, ShopeePay, dll.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 bg-black/40 p-2.5 rounded-xl border border-white/5">
+                    <span className="w-5 h-5 rounded-full bg-purple-600/30 text-purple-300 font-black text-[10px] flex items-center justify-center shrink-0 mt-0.5 border border-purple-500/30">
+                      2
+                    </span>
+                    <div>
+                      <p className="font-bold text-white">
+                        {language === 'id' ? 'Pilih Menu Scan / QRIS' : 'Select Scan / QRIS Menu'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Ketuk ikon <span className="text-purple-300 font-bold">Scan / QRIS</span> pada halaman utama aplikasi Anda.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 bg-black/40 p-2.5 rounded-xl border border-white/5">
+                    <span className="w-5 h-5 rounded-full bg-purple-600/30 text-purple-300 font-black text-[10px] flex items-center justify-center shrink-0 mt-0.5 border border-purple-500/30">
+                      3
+                    </span>
+                    <div>
+                      <p className="font-bold text-white">
+                        {language === 'id' ? 'Arahkan Kamera ke QRIS' : 'Point Camera at QRIS'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Scan QR Code di layar, atau unggah foto screenshot QR dari Galeri.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 bg-black/40 p-2.5 rounded-xl border border-white/5">
+                    <span className="w-5 h-5 rounded-full bg-purple-600/30 text-purple-300 font-black text-[10px] flex items-center justify-center shrink-0 mt-0.5 border border-purple-500/30">
+                      4
+                    </span>
+                    <div>
+                      <p className="font-bold text-white">
+                        {language === 'id' ? 'Periksa Nama Merchant' : 'Verify Merchant Name'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Pastikan penerima: <span className="text-white font-bold">{globalConfig?.qrisMerchantName || 'HITACHIMA, DIGITAL & KREATIF'}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 bg-black/40 p-2.5 rounded-xl border border-white/5">
+                    <span className="w-5 h-5 rounded-full bg-purple-600/30 text-purple-300 font-black text-[10px] flex items-center justify-center shrink-0 mt-0.5 border border-purple-500/30">
+                      5
+                    </span>
+                    <div>
+                      <p className="font-bold text-white">
+                        {language === 'id' ? 'Konfirmasi PIN & Unggah Bukti' : 'Confirm PIN & Upload Receipt'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Selesaikan pembayaran, lalu simpan & unggah bukti bayar untuk verifikasi instan.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ACTION BUTTON */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowQrisGuideModal(false)}
+                  className="w-full py-3.5 bg-gradient-to-r from-purple-600 via-fuchsia-600 to-purple-600 text-white font-extrabold rounded-2xl text-xs uppercase tracking-wider shadow-lg shadow-purple-600/30 hover:brightness-110 active:scale-95 transition cursor-pointer"
+                >
+                  {language === 'id' ? 'Saya Mengerti, Bayar Sekarang 🚀' : 'I Understand, Pay Now 🚀'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* CUSTOM GLOBAL DIALOG COMPONENT */}
       <Modal

@@ -1,4 +1,4 @@
-import { processTelegramWebhook } from '../../src/services/telegramWebhookHandler.js';
+import { processTelegramWebhook } from '../../src/services/telegramWebhookHandler';
 
 export default async function handler(req: any, res: any) {
   const timestamp = new Date().toISOString();

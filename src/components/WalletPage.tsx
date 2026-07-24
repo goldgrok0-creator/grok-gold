@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { ChevronLeft, ChevronRight, ArrowDown, ArrowUp, Coins, History, Gift, Users, RefreshCw, Gem, Boxes, ShieldCheck } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ArrowDown, ArrowUp, Coins, History, Gift, Users, RefreshCw, Gem, Boxes, ShieldCheck, Sparkles } from 'lucide-react';
 import { AppState, CONFIG } from '../types';
 import { calculateCappingEarnings } from '../utils/capping';
 
@@ -12,6 +12,7 @@ interface WalletPageProps {
   totalEarned: number;
   triggerWithdrawFlow: () => void;
   handleClaimYield: () => void;
+  handleClaimRewardToWallet?: () => void;
   miningProfit: number;
   referralReward: number;
   rebateReward: number;
@@ -28,6 +29,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   totalEarned,
   triggerWithdrawFlow,
   handleClaimYield,
+  handleClaimRewardToWallet,
   miningProfit,
   referralReward,
   rebateReward,
@@ -47,31 +49,36 @@ export const WalletPage: React.FC<WalletPageProps> = ({
     cappingEarnings,
     remainingCapping,
     bonusIncome: effectiveBonus,
+    luckySpinReward: effectiveLuckySpin,
   } = cappingMetrics;
 
   const dailyRewardAmount = miningProfit > 0 ? miningProfit : dailyRewardEarnings;
   const effectiveReferralReward = referralReward > 0 ? referralReward : calculatedReferral;
   const effectiveRebateReward = rebateReward > 0 ? rebateReward : calculatedRebate;
+  const effectiveLuckySpinReward = effectiveLuckySpin || 0;
 
-  const rawSum = (dailyRewardAmount || 0) + (effectiveReferralReward || 0) + (effectiveBonus || 0) + (effectiveRebateReward || 0);
+  const rawSum = (dailyRewardAmount || 0) + (effectiveReferralReward || 0) + (effectiveBonus || 0) + (effectiveRebateReward || 0) + (effectiveLuckySpinReward || 0);
 
   // Percentages
   const miningPct = Math.round(CONFIG.DAILY_REWARD_PERCENT * 100); // 2%
   const referralPct = rawSum > 0 ? Math.round(((effectiveReferralReward || 0) / rawSum) * 100) : 0;
   const bonusPct = rawSum > 0 ? Math.round(((effectiveBonus || 0) / rawSum) * 100) : 0;
   const rebatePct = rawSum > 0 ? Math.round(((effectiveRebateReward || 0) / rawSum) * 100) : 0;
+  const luckySpinPct = rawSum > 0 ? Math.round(((effectiveLuckySpinReward || 0) / rawSum) * 100) : 0;
 
   // Fractions for chart SVG ring
   const fMining = rawSum > 0 ? (dailyRewardAmount / rawSum) : 0.02;
   const fReferral = rawSum > 0 ? (effectiveReferralReward / rawSum) : 0.81;
   const fBonus = rawSum > 0 ? (effectiveBonus / rawSum) : 0;
   const fRebate = rawSum > 0 ? (effectiveRebateReward / rawSum) : 0;
+  const fLuckySpin = rawSum > 0 ? (effectiveLuckySpinReward / rawSum) : 0;
 
-  const totalF = fMining + fReferral + fBonus + fRebate;
+  const totalF = fMining + fReferral + fBonus + fRebate + fLuckySpin;
   const normMining = fMining / (totalF || 1);
   const normReferral = fReferral / (totalF || 1);
   const normBonus = fBonus / (totalF || 1);
   const normRebate = fRebate / (totalF || 1);
+  const normLuckySpin = fLuckySpin / (totalF || 1);
 
   const R = 38;
   const C = 2 * Math.PI * R; // ~238.761
@@ -91,6 +98,7 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   const segReferral = getSegmentStyle(normReferral);
   const segBonus = getSegmentStyle(normBonus);
   const segRebate = getSegmentStyle(normRebate);
+  const segLuckySpin = getSegmentStyle(normLuckySpin);
 
   return (
     <div className="space-y-4">
@@ -123,6 +131,15 @@ export const WalletPage: React.FC<WalletPageProps> = ({
             <div className="text-sm font-black text-gold-primary">
               Rp {Math.floor(state.rewardBalance ?? 0).toLocaleString('id-ID')}
             </div>
+            {(state.rewardBalance ?? 0) > 0 && handleClaimRewardToWallet && (
+              <button
+                onClick={handleClaimRewardToWallet}
+                className="mt-1 px-2.5 py-1 rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 text-black font-black text-[9px] hover:brightness-110 active:scale-95 transition shadow-sm cursor-pointer inline-flex items-center gap-1 font-orbitron"
+              >
+                <Coins className="w-2.5 h-2.5" />
+                {language === 'id' ? 'KLAIM KE WALLET' : 'CLAIM TO WALLET'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -143,11 +160,17 @@ export const WalletPage: React.FC<WalletPageProps> = ({
           {t.withdraw}
         </button>
         <button
-          onClick={handleClaimYield}
+          onClick={() => {
+            if ((state.rewardBalance ?? 0) > 0 && handleClaimRewardToWallet) {
+              handleClaimRewardToWallet();
+            } else {
+              handleClaimYield();
+            }
+          }}
           className="py-3 bg-gradient-to-br from-yellow-300 to-gold-primary text-black rounded-2xl text-[10px] font-black transition flex flex-col items-center gap-1.5 shadow-lg shadow-gold-primary/10 cursor-pointer hover:brightness-110 active:scale-95"
         >
           <Coins className="w-4 h-4" />
-          KLAIM REWARD
+          {(state.rewardBalance ?? 0) > 0 ? (language === 'id' ? 'KLAIM KE WALLET' : 'CLAIM TO WALLET') : 'KLAIM REWARD'}
         </button>
       </div>
 
@@ -247,6 +270,20 @@ export const WalletPage: React.FC<WalletPageProps> = ({
                   strokeDashoffset={segRebate.strokeDashoffset}
                 >
                   <title>Rebate Income: Rp {effectiveRebateReward.toLocaleString('id-ID')}</title>
+                </circle>
+
+                {/* Lucky Spin Segment (Pink) */}
+                <circle
+                  cx="50"
+                  cy="50"
+                  r={R}
+                  stroke="#ec4899"
+                  strokeWidth={strokeWidth}
+                  fill="none"
+                  strokeDasharray={segLuckySpin.strokeDasharray}
+                  strokeDashoffset={segLuckySpin.strokeDashoffset}
+                >
+                  <title>Lucky Spin Reward: Rp {effectiveLuckySpinReward.toLocaleString('id-ID')}</title>
                 </circle>
               </svg>
             </div>
@@ -376,6 +413,34 @@ export const WalletPage: React.FC<WalletPageProps> = ({
               </div>
               <span className="bg-[#0b233e] border border-blue-500/50 text-blue-300 font-black text-[10px] px-2.5 py-1 rounded-full min-w-[42px] text-center shadow-sm">
                 {rebatePct}%
+              </span>
+            </div>
+          </div>
+
+          {/* Row 5: Lucky Spin Reward */}
+          <div className="w-full flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/5 text-left">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-[#2a081a] border border-pink-500/40 flex items-center justify-center text-pink-400 shrink-0 shadow-md">
+                <Sparkles className="w-4 h-4 text-pink-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">🎰</span>
+                  <span className="text-xs font-bold text-white">Lucky Spin Reward</span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  <span className="text-pink-300 font-semibold">
+                    {language === 'id' ? 'Terpisah dari Capping 250%' : 'Separated from 250% Capping'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="text-right flex items-center gap-3">
+              <div className="text-xs font-black text-white font-mono">
+                Rp {effectiveLuckySpinReward.toLocaleString('id-ID')}
+              </div>
+              <span className="bg-[#3b0b25] border border-pink-500/50 text-pink-300 font-black text-[10px] px-2.5 py-1 rounded-full min-w-[42px] text-center shadow-sm">
+                {luckySpinPct}%
               </span>
             </div>
           </div>

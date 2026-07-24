@@ -23,7 +23,7 @@ export const authService = {
     });
   },
 
-  async registerUser(newAccount: UserAccount): Promise<boolean> {
+  async registerUser(newAccount: UserAccount): Promise<{ success: boolean; error?: string } | boolean> {
     return await registerUserInSupabase(newAccount);
   },
 

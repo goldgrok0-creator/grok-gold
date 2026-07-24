@@ -173,7 +173,12 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     bankName: 'BCA',
     bankNumber: '8402-1920-22',
     bankHolder: 'PT GROCKGOLD INDONESIA',
-    usdtAddress: 'TYrN8xZ7p8asD89xHjasDJKH190Kash18a'
+    usdtAddress: 'TYrN8xZ7p8asD89xHjasDJKH190Kash18a',
+    qrisMerchantName: 'HITACHIMA, DIGITAL & KREATIF',
+    qrisNmid: 'ID1026555768062',
+    qrisTerminal: 'A01',
+    qrisPrintedBy: '93600914',
+    qrisPrintVersion: 'v0.0.2026.07.23'
   });
 
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
