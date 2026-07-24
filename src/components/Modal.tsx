@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, XCircle, AlertTriangle, Info } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
 interface ModalProps {
   isOpen: boolean;
@@ -23,6 +23,17 @@ export default function Modal({
   onConfirm,
   onClose,
 }: ModalProps) {
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
+
   const getIcon = () => {
     switch (type) {
       case 'success':
@@ -37,42 +48,59 @@ export default function Modal({
     }
   };
 
+  const isCustomHtml = message.includes('<div') || message.includes('<p') || message.includes('<h') || message.includes('<span');
+
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[200000] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[200000] flex items-center justify-center p-4 sm:p-6 overflow-hidden">
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/80 backdrop-blur-md"
+            className="fixed inset-0 bg-black/85 backdrop-blur-md"
           />
 
-          {/* Modal content */}
+          {/* Modal Card */}
           <motion.div
-            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.9, opacity: 0, y: 20 }}
-            transition={{ type: 'spring', duration: 0.4 }}
-            className="relative w-full max-w-sm sm:max-w-md bg-[#110724] border border-gold-primary/30 rounded-2xl p-6 text-center shadow-2xl z-10"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 15 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="relative w-[92%] sm:w-full max-w-[420px] max-h-[85vh] bg-[#12072b]/95 border border-purple-500/40 rounded-[24px] p-4 sm:p-5 shadow-[0_0_50px_rgba(147,51,234,0.3)] z-10 flex flex-col backdrop-blur-xl"
           >
-            <div className="flex justify-center mb-4">
-              {getIcon()}
+            {/* Top Close Button (X) */}
+            <button
+              onClick={onClose}
+              className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition cursor-pointer z-20"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Modal Body / Scrollable Content Area */}
+            <div className="flex-1 overflow-y-auto pr-1 my-1 custom-modal-scroll">
+              {!isCustomHtml && (
+                <div className="flex justify-center my-3">
+                  {getIcon()}
+                </div>
+              )}
+
+              <div 
+                className={`text-slate-100 ${isCustomHtml ? 'text-left' : 'text-center text-[15px] font-semibold leading-relaxed py-2'}`}
+                dangerouslySetInnerHTML={{ __html: message }}
+              />
             </div>
 
-            <div 
-              className="text-sm font-semibold text-slate-100 mb-6 leading-relaxed whitespace-pre-line"
-              dangerouslySetInnerHTML={{ __html: message }}
-            />
-
-            <div className="flex gap-3 justify-center">
+            {/* Pinned Bottom Action Footer */}
+            <div className="shrink-0 pt-3 border-t border-purple-500/20 mt-2 flex gap-3 justify-center">
               {showConfirm ? (
                 <>
                   <button
                     onClick={onClose}
-                    className="flex-1 py-2 px-4 bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 rounded-xl text-xs font-semibold transition"
+                    className="flex-1 h-11 py-2.5 px-4 bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 rounded-full text-sm font-bold transition cursor-pointer"
                   >
                     {cancelText}
                   </button>
@@ -81,7 +109,7 @@ export default function Modal({
                       if (onConfirm) onConfirm();
                       onClose();
                     }}
-                    className="flex-1 py-2 px-4 bg-gradient-to-r from-yellow-300 via-gold-primary to-yellow-600 text-black hover:brightness-110 rounded-xl text-xs font-extrabold transition shadow-lg shadow-gold-primary/20"
+                    className="flex-1 h-11 py-2.5 px-4 bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 text-black hover:brightness-110 rounded-full text-sm font-extrabold transition shadow-[0_0_20px_rgba(251,191,36,0.35)] cursor-pointer uppercase tracking-wider"
                   >
                     {confirmText}
                   </button>
@@ -89,7 +117,7 @@ export default function Modal({
               ) : (
                 <button
                   onClick={onClose}
-                  className="w-full py-2.5 px-6 bg-gradient-to-r from-yellow-300 via-gold-primary to-yellow-600 text-black hover:brightness-110 rounded-xl text-xs font-extrabold transition shadow-lg shadow-gold-primary/20"
+                  className="w-full h-11 sm:h-12 py-2.5 px-6 bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 text-black hover:brightness-110 rounded-full text-base font-black transition shadow-[0_0_25px_rgba(251,191,36,0.35)] cursor-pointer uppercase tracking-wider flex items-center justify-center active:scale-[0.98]"
                 >
                   OK
                 </button>
@@ -101,3 +129,4 @@ export default function Modal({
     </AnimatePresence>
   );
 }
+

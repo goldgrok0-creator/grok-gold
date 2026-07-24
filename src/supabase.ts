@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS contracts (
   last_profit_claim BIGINT NOT NULL
 );
 
--- 5. TABLE: transactions
+--// 5. TABLE: transactions
 CREATE TABLE IF NOT EXISTS transactions (
   id TEXT PRIMARY KEY,
   username TEXT REFERENCES users(username) ON DELETE CASCADE,
@@ -161,12 +161,31 @@ CREATE TABLE IF NOT EXISTS transactions (
   created_at BIGINT NOT NULL
 );
 
+-- 6. TYPE & TABLE: spin_balances (Consolidated Spin Balances)
+DO $$ 
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'spin_type_enum') THEN
+    CREATE TYPE spin_type_enum AS ENUM ('free', 'bonus');
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS spin_balances (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+  type spin_type_enum NOT NULL,
+  amount NUMERIC NOT NULL DEFAULT 0 CHECK (amount >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT unique_user_spin_type UNIQUE (username, type)
+);
+
 -- ENABLE ROW LEVEL SECURITY (RLS)
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deposits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE withdrawals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contracts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE spin_balances ENABLE ROW LEVEL SECURITY;
 
 -- CLEAR EXISTING TABLE POLICIES TO PREVENT DUPLICATE ERRORS ON RE-EXECUTION
 DROP POLICY IF EXISTS "Allow public read users" ON users;
@@ -188,6 +207,10 @@ DROP POLICY IF EXISTS "Allow secure update contracts" ON contracts;
 DROP POLICY IF EXISTS "Allow public read transactions" ON transactions;
 DROP POLICY IF EXISTS "Allow public insert transactions" ON transactions;
 DROP POLICY IF EXISTS "Allow secure update transactions" ON transactions;
+
+DROP POLICY IF EXISTS "Allow public read spin_balances" ON spin_balances;
+DROP POLICY IF EXISTS "Allow public insert spin_balances" ON spin_balances;
+DROP POLICY IF EXISTS "Allow secure update spin_balances" ON spin_balances;
 
 -- CREATE RLS POLICIES FOR USERS AND ADMIN
 -- Users can see/edit their own data; Admin can do anything.
@@ -212,12 +235,17 @@ CREATE POLICY "Allow public read transactions" ON transactions FOR SELECT USING 
 CREATE POLICY "Allow public insert transactions" ON transactions FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow secure update transactions" ON transactions FOR UPDATE USING (true);
 
+CREATE POLICY "Allow public read spin_balances" ON spin_balances FOR SELECT USING (true);
+CREATE POLICY "Allow public insert spin_balances" ON spin_balances FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow secure update spin_balances" ON spin_balances FOR UPDATE USING (true);
+
 -- ENABLE REALTIME ON ALL TABLES
 alter publication supabase_realtime add table users;
 alter publication supabase_realtime add table deposits;
 alter publication supabase_realtime add table withdrawals;
 alter publication supabase_realtime add table contracts;
 alter publication supabase_realtime add table transactions;
+alter publication supabase_realtime add table spin_balances;
 
 -- =========================================================================
 -- SUPABASE STORAGE BUCKET AND STORAGE POLICIES
@@ -365,13 +393,15 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
     let withdrawalsQuery = supabase.from('withdrawals').select('*');
     let contractsQuery = supabase.from('contracts').select('*');
     let transactionsQuery = supabase.from('transactions').select('*');
+    let spinBalancesQuery = supabase.from('spin_balances').select('*');
 
-    const [usersRes, depositsRes, withdrawalsRes, contractsRes, transactionsRes] = await Promise.all([
+    const [usersRes, depositsRes, withdrawalsRes, contractsRes, transactionsRes, spinBalancesRes] = await Promise.all([
       usersQuery,
       depositsQuery,
       withdrawalsQuery,
       contractsQuery,
-      transactionsQuery
+      transactionsQuery,
+      spinBalancesQuery
     ]);
 
     if (usersRes.error) {
@@ -396,6 +426,7 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
     const withdrawals = withdrawalsRes.data || [];
     const contracts = contractsRes.data || [];
     const transactions = transactionsRes.data || [];
+    const spinBalances = spinBalancesRes.data || [];
 
     // Map into UserAccount structure to ensure seamless frontend compatibility
     return users.map((user: any) => {
@@ -515,6 +546,35 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
 
       const dynTotalEarned = dynMiningProfit + dynReferralEarned + dynRebateEarned + dynWelcomeBonus;
 
+      const historyList = (user.settings?.luckySpinHistory || []).filter((item: any) => item && item.id !== '1' && item.id !== '2' && item.id !== '3' && item.prize !== 'Boost 5x');
+      const totalWonFromHistory = historyList.reduce((sum: number, item: any) => {
+        if (item && (item.success || item.type === 'cash' || (item.value && item.value > 0)) && typeof item.value === 'number') {
+          return sum + item.value;
+        }
+        return sum;
+      }, 0);
+
+      // Fetch from unified spin_balances table
+      const userSpinRows = spinBalances.filter((sb: any) => sb.username?.toLowerCase() === usernameLower);
+      const freeSpinRow = userSpinRows.find((sb: any) => sb.type === 'free');
+      const bonusSpinRow = userSpinRows.find((sb: any) => sb.type === 'bonus');
+
+      const rawFreeSpin = freeSpinRow
+        ? Number(freeSpinRow.amount)
+        : (user.free_spin_balance !== undefined && user.free_spin_balance !== null
+            ? Number(user.free_spin_balance)
+            : (user.settings?.freeSpinBalance ?? 1000000));
+
+      const rawBonusSpin = bonusSpinRow
+        ? Number(bonusSpinRow.amount)
+        : Math.max(
+            user.bonus_spin_balance !== undefined && user.bonus_spin_balance !== null ? Number(user.bonus_spin_balance) : 0,
+            user.reward_spin_wallet !== undefined && user.reward_spin_wallet !== null ? Number(user.reward_spin_wallet) : 0,
+            user.settings?.bonusSpinBalance ?? 0,
+            user.settings?.rewardSpinWallet ?? 0,
+            totalWonFromHistory
+          );
+
       return {
         fullName: user.full_name || '',
         username: user.username,
@@ -530,10 +590,14 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
           notificationsEnabled: true,
           autoReinvest: false,
           ...(user.settings || {}),
+          freeSpinBalance: rawFreeSpin,
+          bonusSpinBalance: rawBonusSpin,
           telegramId: user.telegram_id || user.settings?.telegramId || ''
         },
         state: {
           mainBalance: Number(user.main_balance) || 0,
+          freeSpinBalance: Math.max(0, Math.min(rawFreeSpin, 1000000 - totalWonFromHistory)),
+          bonusSpinBalance: rawBonusSpin,
           activeContracts: Number(user.active_contracts) || 0,
           totalEarned: dynTotalEarned,
           referralEarned: dynReferralEarned,
@@ -570,37 +634,15 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
 // 1. Create User (Registration)
 export async function registerUserInSupabase(account: UserAccount): Promise<boolean> {
   try {
-    const payload = {
-      username: account.username,
-      full_name: account.fullName,
-      email: account.email,
-      phone: account.phone,
-      password: account.password,
-      referral_code: account.referralCode,
-      invited_by: account.invitedBy,
-      created_at: account.createdAt,
-      main_balance: account.state.mainBalance,
-      active_contracts: account.state.activeContracts,
-      total_earned: account.state.totalEarned,
-      referral_earned: account.state.referralEarned,
-      rebate_earned: account.state.rebateEarned,
-      last_claim_time: account.state.lastClaimTime,
-      welcome_bonus_claimed: account.state.welcomeBonusClaimed,
-      profile_image: account.state.profileImage,
-      pending_mining_reward: account.state.pendingMiningReward,
-      settings: account.settings
-    };
+    const freeSpinBal = account.state.freeSpinBalance ?? 1000000;
+    const bonusSpinBal = account.state.bonusSpinBalance ?? 0;
+    const now = Date.now();
 
-    const { error } = await supabase.from('users').insert(payload);
-    if (error) {
-      console.warn('Error creating user in Supabase:', error.message);
-      return false;
-    }
-
-    // Try to register in Supabase Auth on-the-fly as well
+    // Register in Supabase Auth first to obtain auth_user_id
+    let authUserId: string | null = null;
     try {
       const redirectUrl = typeof window !== 'undefined' ? window.location.origin : 'https://grok-gold-drab.vercel.app';
-      await supabase.auth.signUp({
+      const authRes = await supabase.auth.signUp({
         email: account.email,
         password: account.password,
         options: {
@@ -611,8 +653,90 @@ export async function registerUserInSupabase(account: UserAccount): Promise<bool
           }
         }
       });
+      if (authRes.data?.user?.id) {
+        authUserId = authRes.data.user.id;
+      }
     } catch (authErr) {
       console.warn('Auth sign-up optional warning:', authErr);
+    }
+
+    const payload = {
+      username: account.username,
+      full_name: account.fullName,
+      email: account.email,
+      phone: account.phone,
+      password: account.password,
+      referral_code: account.referralCode,
+      invited_by: account.invitedBy,
+      created_at: account.createdAt || now,
+      main_balance: account.state.mainBalance || 0,
+      active_contracts: account.state.activeContracts || 0,
+      total_earned: account.state.totalEarned || 0,
+      referral_earned: account.state.referralEarned || 0,
+      rebate_earned: account.state.rebateEarned || 0,
+      last_claim_time: account.state.lastClaimTime || 0,
+      welcome_bonus_claimed: !!account.state.welcomeBonusClaimed,
+      profile_image: account.state.profileImage || null,
+      pending_mining_reward: account.state.pendingMiningReward || 0,
+      settings: {
+        ...(account.settings || {}),
+        authUserId: authUserId || undefined,
+        auth_user_id: authUserId || undefined,
+        freeSpinBalance: freeSpinBal,
+        bonusSpinBalance: bonusSpinBal,
+        rewardSpinWallet: bonusSpinBal,
+        luckySpinHistory: [],
+        lastSpinResetAt: 0
+      }
+    };
+
+    let { error } = await supabase.from('users').insert(payload);
+    if (error) {
+      console.warn('Error creating user in Supabase:', error.message);
+      return false;
+    }
+
+    // Save initial balances to consolidated spin_balances table
+    try {
+      await supabase.from('spin_balances').upsert([
+        { username: account.username, type: 'free', amount: freeSpinBal, updated_at: new Date().toISOString() },
+        { username: account.username, type: 'bonus', amount: bonusSpinBal, updated_at: new Date().toISOString() }
+      ], { onConflict: 'username,type' });
+    } catch (spinErr) {
+      console.warn('Non-fatal error creating spin_balances record:', spinErr);
+    }
+
+    try {
+      // Award Rp 50,000 Saldo Free Spin to sponsor/inviter
+      if (account.invitedBy) {
+        const { data: sponsorData } = await supabase
+          .from('users')
+          .select('username, settings')
+          .ilike('username', account.invitedBy)
+          .maybeSingle();
+
+        if (sponsorData) {
+          const oldSponsorBal = sponsorData.settings?.freeSpinBalance ?? 1000000;
+          const newSponsorBal = oldSponsorBal + 50000;
+
+          await supabase.from('users').update({
+            settings: {
+              ...(sponsorData.settings || {}),
+              freeSpinBalance: newSponsorBal
+            }
+          }).ilike('username', account.invitedBy);
+
+          // Sync sponsor's free spin balance into spin_balances table
+          await supabase.from('spin_balances').upsert({
+            username: sponsorData.username,
+            type: 'free',
+            amount: newSponsorBal,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'username,type' });
+        }
+      }
+    } catch (auditErr) {
+      console.warn('Audit logging non-fatal error:', auditErr);
     }
 
     return true;
@@ -685,10 +809,16 @@ export async function createWithdrawalInSupabase(
       console.warn(`Invalid withdrawal amount: ${amount}`);
       return false;
     }
-    // 1. Fetch User balance
-    const { data: user } = await supabase.from('users').select('main_balance').eq('username', username).single();
+    // 1. Fetch User balance and active contracts
+    const { data: user } = await supabase.from('users').select('main_balance, active_contracts').eq('username', username).single();
     if (!user) return false;
     const currentBalance = Number(user.main_balance) || 0;
+    const activeContracts = Number(user.active_contracts) || 0;
+
+    if (activeContracts < 1) {
+      console.warn(`Withdrawal blocked: user ${username} account is inactive (active_contracts: ${activeContracts}). Minimum 1 stock required.`);
+      return false;
+    }
 
     if (currentBalance < amount) {
       console.warn(`Insufficient balance for user ${username} withdrawal. Needed: ${amount}, Has: ${currentBalance}`);
@@ -751,25 +881,16 @@ export async function updateProfileImageInSupabase(username: string, imageUrl: s
 // 5. Update settings in Supabase
 export async function updateUserSettingsInSupabase(username: string, settings: any): Promise<boolean> {
   try {
-    const updatePayload: any = { settings };
-    if (settings && settings.telegramId !== undefined) {
-      updatePayload.telegram_id = settings.telegramId || null;
-    }
-
-    let { error } = await supabase
+    const { error } = await supabase
       .from('users')
-      .update(updatePayload)
+      .update({ settings })
       .ilike('username', username);
 
-    if (error && (error.code === 'PGRST204' || error.message?.includes('telegram_id'))) {
-      const fallbackRes = await supabase
-        .from('users')
-        .update({ settings })
-        .ilike('username', username);
-      error = fallbackRes.error;
+    if (error) {
+      console.error('Error updating settings:', error);
+      return false;
     }
-
-    return !error;
+    return true;
   } catch (err) {
     console.error('Error updating settings:', err);
     return false;
@@ -788,26 +909,10 @@ export async function saveTelegramChatIdToSupabase(
       telegramId: telegramId
     };
 
-    const updatePayload: any = {
-      telegram_id: telegramId || null,
-      settings: updatedSettings
-    };
-
-    let { error } = await supabase
+    const { error } = await supabase
       .from('users')
-      .update(updatePayload)
+      .update({ settings: updatedSettings })
       .ilike('username', username);
-
-    // If telegram_id column missing from schema cache (PGRST204), fallback to updating settings JSON column
-    if (error && (error.code === 'PGRST204' || error.message?.includes('telegram_id'))) {
-      const fallbackRes = await supabase
-        .from('users')
-        .update({
-          settings: updatedSettings
-        })
-        .ilike('username', username);
-      error = fallbackRes.error;
-    }
 
     if (error) {
       console.error('Supabase error saving Telegram Chat ID:', error);
@@ -824,6 +929,57 @@ export async function saveTelegramChatIdToSupabase(
 // 6. Update general appState in Supabase (For users & admin profile)
 export async function saveAccountToSupabase(account: UserAccount): Promise<boolean> {
   try {
+    const freeSpinBal = account.state.freeSpinBalance ?? 1000000;
+    const bonusSpinBal = account.state.bonusSpinBalance ?? 0;
+
+    // Fetch existing settings from DB to prevent accidental overwrite of server-managed settings like luckySpinHistory or lastSpinResetAt
+    let existingSettings: any = {};
+    try {
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('settings')
+        .ilike('username', account.username)
+        .maybeSingle();
+      if (existingUser?.settings) {
+        existingSettings = existingUser.settings;
+      }
+    } catch (e) {
+      console.warn('Could not fetch existing user settings for merge:', e);
+    }
+
+    const dbHistory = Array.isArray(existingSettings.luckySpinHistory) ? existingSettings.luckySpinHistory : [];
+    const localHistory = Array.isArray(account.settings?.luckySpinHistory) ? account.settings.luckySpinHistory : [];
+    const mergedHistory = dbHistory.length >= localHistory.length ? dbHistory : localHistory;
+
+    const historyBonusTotal = mergedHistory.reduce((sum: number, item: any) => {
+      if (item && (item.success || item.type === 'cash' || (item.value && item.value > 0)) && typeof item.value === 'number') {
+        return sum + item.value;
+      }
+      return sum;
+    }, 0);
+
+    const mergedBonusSpinBal = Math.max(
+      account.state.bonusSpinBalance ?? 0,
+      existingSettings.bonusSpinBalance ?? 0,
+      existingSettings.rewardSpinWallet ?? 0,
+      historyBonusTotal
+    );
+
+    const rawFreeSpinBal = account.state.freeSpinBalance ?? existingSettings.freeSpinBalance ?? 1000000;
+    const mergedFreeSpinBal = Math.max(0, Math.min(rawFreeSpinBal, 1000000 - historyBonusTotal));
+
+    const mergedLastReset = account.settings?.lastSpinResetAt || existingSettings.lastSpinResetAt;
+
+    const mergedSettings = {
+      ...existingSettings,
+      ...(account.settings || {}),
+      freeSpinBalance: mergedFreeSpinBal,
+      bonusSpinBalance: mergedBonusSpinBal,
+      rewardSpinWallet: mergedBonusSpinBal,
+      luckySpinHistory: mergedHistory,
+      ...(mergedLastReset ? { lastSpinResetAt: mergedLastReset } : {})
+    };
+
     const payload: any = {
       full_name: account.fullName,
       email: account.email,
@@ -835,40 +991,37 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
       total_earned: account.state.totalEarned,
       referral_earned: account.state.referralEarned,
       rebate_earned: account.state.rebateEarned,
-      reward_balance: account.state.rewardBalance ?? 0,
       last_claim_time: account.state.lastClaimTime,
       welcome_bonus_claimed: account.state.welcomeBonusClaimed,
       profile_image: account.state.profileImage,
       pending_mining_reward: account.state.pendingMiningReward,
-      settings: account.settings
+      settings: mergedSettings
     };
-
-    if (account.settings?.telegramId) {
-      payload.telegram_id = account.settings.telegramId;
-    }
 
     if (account.password && account.password.trim() !== '') {
       payload.password = account.password;
     }
 
-    let { error } = await supabase
+    const { error } = await supabase
       .from('users')
       .update(payload)
       .ilike('username', account.username);
-
-    if (error && (error.code === 'PGRST204' || error.message?.includes('telegram_id'))) {
-      delete payload.telegram_id;
-      const fallbackRes = await supabase
-        .from('users')
-        .update(payload)
-        .ilike('username', account.username);
-      error = fallbackRes.error;
-    }
 
     if (error) {
       console.warn('Supabase update user error:', error.message);
       return false;
     }
+
+    // Sync spin balances to spin_balances table
+    try {
+      await supabase.from('spin_balances').upsert([
+        { username: account.username, type: 'free', amount: mergedFreeSpinBal, updated_at: new Date().toISOString() },
+        { username: account.username, type: 'bonus', amount: mergedBonusSpinBal, updated_at: new Date().toISOString() }
+      ], { onConflict: 'username,type' });
+    } catch (spinErr) {
+      console.warn('Error saving to spin_balances:', spinErr);
+    }
+
     return true;
   } catch (err) {
     console.error('Error saving user to Supabase:', err);
@@ -1217,17 +1370,15 @@ async function distributeReferralCommission(referrer: string, amount: number, bu
 // Claim welcome bonus
 export async function claimWelcomeBonusInSupabase(username: string): Promise<boolean> {
   try {
-    const { data: user } = await supabase.from('users').select('main_balance, reward_balance, welcome_bonus_claimed').eq('username', username).single();
+    const { data: user } = await supabase.from('users').select('main_balance, welcome_bonus_claimed').eq('username', username).single();
     if (!user || user.welcome_bonus_claimed) return false;
 
-    const currentRewardBalance = Number(user.reward_balance) || 0;
     const bonusAmount = CONFIG.WELCOME_BONUS_AMOUNT; // 1,800,000
 
     const txId = 'WLC-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
     const [userUpdate, txInsert] = await Promise.all([
       supabase.from('users').update({
-        reward_balance: currentRewardBalance + bonusAmount,
         welcome_bonus_claimed: true
       }).eq('username', username),
       supabase.from('transactions').insert({
@@ -1273,7 +1424,7 @@ export async function claimDailyRewardInSupabase(
   try {
     const { data: user, error: userError } = await supabase
       .from('users')
-      .select('main_balance, reward_balance, pending_mining_reward, total_earned, active_contracts, settings, last_claim_time')
+      .select('main_balance, pending_mining_reward, total_earned, active_contracts, settings, last_claim_time')
       .eq('username', username)
       .single();
 
@@ -1307,7 +1458,6 @@ export async function claimDailyRewardInSupabase(
       };
     }
 
-    const currentRewardBalance = Number(user.reward_balance) || 0;
     const currentEarned = Number(user.total_earned) || 0;
 
     const contractValue = activeContracts * CONFIG.PRICE_PER_UNIT;
@@ -1358,7 +1508,6 @@ export async function claimDailyRewardInSupabase(
     });
 
     const totalCredited = finalRewardCredited;
-    const newRewardBalance = currentRewardBalance + totalCredited;
     const newTotalEarned = currentEarned + totalCredited;
     const txId = 'CLM-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
@@ -1368,7 +1517,6 @@ export async function claimDailyRewardInSupabase(
     // Credit directly to reward_balance, main_balance remains UNCHANGED
     const [userUpdate, txInsert] = await Promise.all([
       supabase.from('users').update({
-        reward_balance: newRewardBalance,
         total_earned: newTotalEarned,
         last_claim_time: now,
         settings: userSettings
@@ -1403,7 +1551,7 @@ export async function claimDailyRewardInSupabase(
 
     return { 
       success: true, 
-      rewardBalance: newRewardBalance, 
+      rewardBalance: totalCredited, 
       totalEarned: newTotalEarned, 
       lastClaimTime: now, 
       claimedAmount: totalCredited 

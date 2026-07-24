@@ -118,6 +118,7 @@ export const useAuth = () => {
       settings: dbUser.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false },
       state: {
         mainBalance: Number(dbUser.main_balance) || 0,
+        freeSpinBalance: dbUser.settings?.freeSpinBalance ?? 1000000,
         activeContracts: Number(dbUser.active_contracts) || 0,
         totalEarned: Number(dbUser.total_earned) || 0,
         referralEarned: Number(dbUser.referral_earned) || 0,
@@ -141,11 +142,7 @@ export const useAuth = () => {
 
     setCurrentAccount(finalAccount);
 
-    if (rememberMe) {
-      localStorage.setItem('grockgold_logged_in_username_v4', userUsername);
-    } else {
-      localStorage.removeItem('grockgold_logged_in_username_v4');
-    }
+    localStorage.setItem('grockgold_logged_in_username_v4', userUsername);
 
     triggerModal(
       language === 'id'
@@ -156,6 +153,7 @@ export const useAuth = () => {
 
     setState({
       ...finalAccount.state,
+      username: userUsername,
       isLoggedIn: true,
     });
 
@@ -301,6 +299,8 @@ export const useAuth = () => {
 
     const defaultUserState: AppState = {
       mainBalance: 0,
+      freeSpinBalance: 1000000,
+      bonusSpinBalance: 0,
       activeContracts: 0,
       totalEarned: 0,
       referralEarned: 0,
@@ -335,6 +335,11 @@ export const useAuth = () => {
         language: language,
         notificationsEnabled: true,
         autoReinvest: false,
+        freeSpinBalance: 1000000,
+        bonusSpinBalance: 0,
+        rewardSpinWallet: 0,
+        luckySpinHistory: [],
+        lastSpinResetAt: 0,
       }
     };
 
@@ -343,15 +348,22 @@ export const useAuth = () => {
     setIsLoading(false);
 
     if (success) {
-      setUnverifiedEmail(email);
+      localStorage.setItem('grockgold_logged_in_username_v4', username);
+      setCurrentAccount(newAccount);
+      setState({
+        ...defaultUserState,
+        username: username,
+        isLoggedIn: true,
+      });
+      setUnverifiedEmail(null);
       setResendStatus(null);
       triggerModal(
         language === 'id' 
-          ? '🎉 Registrasi berhasil! Email verifikasi telah dikirim. Silakan verifikasi email Anda sebelum melakukan login.' 
-          : '🎉 Registration successful! A verification email has been sent. Please verify your email before logging in.', 
+          ? `🎉 Registrasi berhasil! Selamat datang, ${fullName || username}.` 
+          : `🎉 Registration successful! Welcome, ${fullName || username}.`, 
         'success'
       );
-      setAuthScreen('login');
+      setCurrentTab('home');
       return true;
     } else {
       triggerModal(language === 'id' ? '❌ Registrasi gagal!' : '❌ Registration failed!', 'danger');

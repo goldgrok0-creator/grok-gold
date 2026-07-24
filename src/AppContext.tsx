@@ -36,14 +36,14 @@ const INITIAL_SYSTEM_ERRORS: SystemError[] = [
 ];
 
 export const SPIN_ITEMS = [
+  { label: 'Rp 500', color: '#7209b7', value: 500, type: 'cash' },
+  { label: 'Coba Lagi', color: '#1a103c', value: 0, type: 'zonk' },
+  { label: 'Rp 1.000', color: '#b5179e', value: 1000, type: 'cash' },
+  { label: 'Rp 2.000', color: '#f72585', value: 2000, type: 'cash' },
   { label: 'Rp 5.000', color: '#7209b7', value: 5000, type: 'cash' },
   { label: 'ZONK', color: '#1a103c', value: 0, type: 'zonk' },
-  { label: 'Rp 15.000', color: '#b5179e', value: 15000, type: 'cash' },
-  { label: 'Boost 5x', color: '#f72585', value: 5, type: 'boost' },
-  { label: 'Rp 25.000', color: '#7209b7', value: 25000, type: 'cash' },
-  { label: 'ZONK', color: '#1a103c', value: 0, type: 'zonk' },
-  { label: 'Rp 50.000', color: '#da70d6', value: 50000, type: 'cash' },
-  { label: 'Boost 10x', color: '#f8961e', value: 10, type: 'boost' },
+  { label: 'Rp 1.000', color: '#da70d6', value: 1000, type: 'cash' },
+  { label: 'Rp 500', color: '#f8961e', value: 500, type: 'cash' },
 ];
 
 function isSameDay(t1: number, t2: number) {
@@ -206,6 +206,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const [state, setState] = useState<AppState>({
     mainBalance: 0,
+    freeSpinBalance: 1000000,
     activeContracts: 0,
     totalEarned: 0,
     referralEarned: 0,
@@ -272,22 +273,8 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (session?.user) {
         if (session.user.email?.toLowerCase() === 'admin@grockgold.com') {
           loggedInUsername = 'admin';
-        } else {
-          if (!session.user.email_confirmed_at && !isBypassed) {
-            console.warn('Session found for unverified email on startup. Signing out.');
-            setUnverifiedEmail(session.user.email || null);
-            try {
-              await supabase.auth.signOut();
-            } catch (signOutErr) {}
-            localStorage.removeItem('grockgold_logged_in_username_v4');
-            loggedInUsername = null;
-          } else if (session.user.user_metadata?.username) {
-            loggedInUsername = session.user.user_metadata.username;
-          }
-        }
-      } else {
-        if (!isBypassed) {
-          loggedInUsername = null;
+        } else if (session.user.user_metadata?.username) {
+          loggedInUsername = session.user.user_metadata.username;
         }
       }
 
@@ -307,6 +294,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             setState(prev => ({
               ...prev,
               ...found.state,
+              username: found.username,
               isLoggedIn: true,
             }));
             if (found.settings?.language) {

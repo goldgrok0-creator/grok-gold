@@ -153,6 +153,15 @@ const WalletPage: React.FC = () => {
   };
 
   const triggerWithdrawFlow = () => {
+    if (state.activeContracts < 1) {
+      triggerModal(
+        language === 'id'
+          ? '❌ AKUN BELUM AKTIF\n\nPenarikan saldo (Withdraw) hanya dapat dilakukan setelah akun Anda aktif dengan membeli minimal 1 unit Stock / Kontrak (Rp 100.000).\n\nSilakan lakukan pembelian Stock di menu Utama untuk mengaktifkan akun Anda!'
+          : '❌ INACTIVE ACCOUNT\n\nWithdrawal can only be performed after your account is active by purchasing at least 1 Stock unit (Rp 100,000).\n\nPlease purchase Stock on the Home page to activate your account!',
+        'warning'
+      );
+      return;
+    }
     if (state.mainBalance < 100000) {
       triggerModal(
         language === 'id' 
@@ -166,6 +175,15 @@ const WalletPage: React.FC = () => {
   };
 
   const handleExecuteWithdrawal = async () => {
+    if (state.activeContracts < 1) {
+      triggerModal(
+        language === 'id'
+          ? '❌ AKUN BELUM AKTIF\n\nPenarikan saldo (Withdraw) hanya dapat dilakukan setelah akun Anda aktif dengan membeli minimal 1 unit Stock / Kontrak (Rp 100.000).\n\nSilakan lakukan pembelian Stock di menu Utama untuk mengaktifkan akun Anda!'
+          : '❌ INACTIVE ACCOUNT\n\nWithdrawal can only be performed after your account is active by purchasing at least 1 Stock unit (Rp 100,000).\n\nPlease purchase Stock on the Home page to activate your account!',
+        'warning'
+      );
+      return;
+    }
     const rawAmount = parseInt(withdrawAmount.replace(/[^0-9]/g, ''));
     if (isNaN(rawAmount) || rawAmount < 100000) {
       triggerModal(
@@ -257,6 +275,88 @@ const WalletPage: React.FC = () => {
                 <div className="text-sm font-black text-gold-primary">
                   Rp {Math.floor(state.rewardBalance ?? 0).toLocaleString('id-ID')}
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ITEM DOMPET & HADIAH PERMAINAN */}
+          <div className="space-y-3">
+            <div className="text-[11px] font-black tracking-widest text-gold-primary uppercase px-1">
+              {language === 'id' ? '💼 ITEM DOMPET & SALDO GAME' : '💼 WALLET ITEMS & GAME BALANCES'}
+            </div>
+
+            {/* ITEM 1: SALDO BONUS SPIN (TEMPAT HADIAH HASIL PERMAINAN) */}
+            <div className="bg-gradient-to-r from-[#170a2c] via-[#0d041c] to-[#170a2c] border border-fuchsia-500/30 rounded-3xl p-4 shadow-xl flex justify-between items-center relative overflow-hidden">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-fuchsia-500/15 border border-fuchsia-500/30 flex items-center justify-center text-fuchsia-400 shrink-0 text-lg">
+                  🎁
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-black text-white uppercase">{language === 'id' ? 'Saldo Bonus Spin' : 'Bonus Spin Balance'}</span>
+                    <span className="text-[8px] font-black px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 uppercase">
+                      {language === 'id' ? 'HADIAH PERMAINAN' : 'GAME PRIZES'}
+                    </span>
+                  </div>
+                  <span className="text-[9.5px] text-slate-400 block mt-0.5 font-medium">
+                    {language === 'id' ? 'Tempat menyimpan hadiah hasil kemenangan permainan Lucky Spin' : 'Stores prize winnings earned from Lucky Spin games'}
+                  </span>
+                  <div className="text-base font-black text-fuchsia-300 font-orbitron mt-1">
+                    Rp {(state.bonusSpinBalance ?? 0).toLocaleString('id-ID')}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ITEM 2: SALDO FREE SPIN (MODAL UNTUK BERMAIN) */}
+            <div className="bg-gradient-to-r from-[#190638] via-[#0b021a] to-[#190638] border border-purple-500/40 rounded-3xl p-4 shadow-xl flex justify-between items-center relative overflow-hidden">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-300 shrink-0 text-lg">
+                  🎯
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-black text-white uppercase">{language === 'id' ? 'Saldo Free Spin' : 'Free Spin Balance'}</span>
+                    <span className="text-[8px] font-black px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase">
+                      {language === 'id' ? 'MODAL BERMAIN' : 'PLAYING CAPITAL'}
+                    </span>
+                  </div>
+                  <span className="text-[9.5px] text-slate-400 block mt-0.5 font-medium">
+                    {language === 'id' ? 'Modal untuk bermain permainan Lucky Spin (Bonus registrasi & +Rp 50.000/ref)' : 'Capital used to play Lucky Spin games'}
+                  </span>
+                  <div className="text-base font-black text-purple-300 font-orbitron mt-1">
+                    Rp {(state.freeSpinBalance ?? 1000000).toLocaleString('id-ID')}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setWalletTab('reward')}
+                className="shrink-0 text-[9px] font-black bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:brightness-110 text-white px-3 py-2 rounded-xl uppercase transition shadow-lg cursor-pointer"
+              >
+                {language === 'id' ? 'Main Spin' : 'Play Spin'}
+              </button>
+            </div>
+          </div>
+
+          {/* STATUS AKTIVASI AKUN FOR WITHDRAWAL */}
+          <div className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 text-[10px] font-bold ${
+            state.activeContracts >= 1 
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+              : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+          }`}>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              <div>
+                <span className="font-black uppercase block">
+                  {state.activeContracts >= 1 
+                    ? (language === 'id' ? 'AKUN AKTIF (FITUR WITHDRAW DIBUKA)' : 'ACCOUNT ACTIVE (WITHDRAWAL UNLOCKED)')
+                    : (language === 'id' ? 'AKUN BELUM AKTIF (WITHDRAW TERKUNCI)' : 'ACCOUNT INACTIVE (WITHDRAWAL LOCKED)')}
+                </span>
+                <span className="text-[9px] text-slate-400 font-medium block mt-0.5">
+                  {state.activeContracts >= 1
+                    ? (language === 'id' ? `Anda memiliki ${state.activeContracts} unit Stock. Penarikan dana dapat dilakukan sewaktu-waktu.` : `You hold ${state.activeContracts} Stock units. Withdrawals are unlocked.`)
+                    : (language === 'id' ? 'Syarat Penarikan: Beli minimal 1 unit Stock/Kontrak (Rp 100.000) di menu Utama.' : 'Withdrawal Requirement: Purchase at least 1 Stock unit (Rp 100,000).')}
+                </span>
               </div>
             </div>
           </div>

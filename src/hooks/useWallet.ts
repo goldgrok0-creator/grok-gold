@@ -73,6 +73,15 @@ export const useWallet = () => {
   };
 
   const withdraw = async (amountStr: string, withdrawBank: string, withdrawAccount: string) => {
+    if (state.activeContracts < 1) {
+      triggerModal(
+        language === 'id'
+          ? '❌ AKUN BELUM AKTIF\n\nPenarikan saldo (Withdraw) hanya dapat dilakukan setelah akun Anda aktif dengan membeli minimal 1 unit Stock / Kontrak (Rp 100.000).\n\nSilakan lakukan pembelian Stock di menu Utama untuk mengaktifkan akun Anda!'
+          : '❌ INACTIVE ACCOUNT\n\nWithdrawal can only be performed after your account is active by purchasing at least 1 Stock unit (Rp 100,000).\n\nPlease purchase Stock on the Home page to activate your account!',
+        'warning'
+      );
+      return false;
+    }
     const amount = parseInt(amountStr.replace(/[^0-9]/g, '')) || 0;
 
     if (amount < CONFIG.MIN_WITHDRAW) {

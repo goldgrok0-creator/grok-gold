@@ -94,6 +94,7 @@ import PrivacyPolicyPage from './components/PrivacyPolicyPage';
 import TermsOfServicePage from './components/TermsOfServicePage';
 import ContactInfoPage from './components/ContactInfoPage';
 import SettingsPage from './pages/Settings';
+import LuckySpinPage from './pages/LuckySpin';
 import { SearchableCountrySelect } from './components/SearchableCountrySelect';
 import { WORLD_COUNTRIES } from './data/countries';
 import ContractPage from './components/ContractPage';
@@ -127,6 +128,62 @@ import {
   executeLuckySpinInSupabase
 } from './supabase';
 import { calculateNetworkActiveCount } from './utils/network';
+
+/**
+ * Calculates the time remaining until the next available Lucky Spin
+ * and returns formatted timer object for display on the Lucky Spin page.
+ */
+export function calculateLuckySpinCountdown(
+  nextResetAt: number | null | undefined,
+  serverTimeOffset: number = 0,
+  spinsRemaining: number = 0
+): {
+  formatted: string;
+  remainingSeconds: number;
+  hours: string;
+  minutes: string;
+  seconds: string;
+  isLocked: boolean;
+} {
+  if (spinsRemaining > 0 || !nextResetAt || nextResetAt <= 0) {
+    return {
+      formatted: '24:00:00',
+      remainingSeconds: 86400,
+      hours: '24',
+      minutes: '00',
+      seconds: '00',
+      isLocked: false,
+    };
+  }
+
+  const currentServerNow = Date.now() + serverTimeOffset;
+  const diffMs = nextResetAt - currentServerNow;
+  const totalSeconds = Math.max(0, Math.floor(diffMs / 1000));
+
+  if (totalSeconds <= 0) {
+    return {
+      formatted: '00:00:00',
+      remainingSeconds: 0,
+      hours: '00',
+      minutes: '00',
+      seconds: '00',
+      isLocked: false,
+    };
+  }
+
+  const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+
+  return {
+    formatted: `${hours}:${minutes}:${seconds}`,
+    remainingSeconds: totalSeconds,
+    hours,
+    minutes,
+    seconds,
+    isLocked: true,
+  };
+}
 
 // Initial dummy downline holders to populate Network structures
 const INITIAL_HOLDERS: Holder[] = [];
@@ -362,11 +419,7 @@ export default function App() {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedBank, setCopiedBank] = useState(false);
   const [copiedUSDT, setCopiedUSDT] = useState(false);
-  const [luckySpinHistory, setLuckySpinHistory] = useState<Array<{ id: string; prize: string; date: number; success: boolean }>>([
-    { id: '1', prize: 'Rp 15.000', date: Date.now() - 3600000 * 2.5, success: true },
-    { id: '2', prize: 'Boost 5x', date: Date.now() - 3600000 * 5, success: true },
-    { id: '3', prize: 'ZONK', date: Date.now() - 3600000 * 12, success: false }
-  ]);
+  const [luckySpinHistory, setLuckySpinHistory] = useState<Array<{ id: string; prize: string; date: number; success: boolean }>>([]);
   const [communityMessages, setCommunityMessages] = useState<Array<{ id: string; user: string; text: string; time: string; initials: string; isSelf?: boolean }>>([
     { id: 'm1', user: 'rudi_gold', text: 'Klaim bonus Rp 1.8M beneran cair gan! Mantul bener rujukan target tercapai langsung landing!', time: '14:20', initials: 'RG' },
     { id: 'm2', user: 'mining_boss', text: 'Baru WD Rp 500rb instan langsung masuk rekening BCA 👍 Rekomendasi banget nih platform.', time: '14:22', initials: 'MB' },
@@ -430,34 +483,50 @@ export default function App() {
         updateGlobalConfig(config);
       }
 
-      // Re-verify current active logged-in user first to query only their data
+      // Re-verify current active logged-in user with Supabase Auth session or localStorage session
       const { data: { session } } = await supabase.auth.getSession();
-      let loggedInUsername = localStorage.getItem('grockgold_logged_in_username_v4');
-      const isBypassed = true; // Permanently bypassed verification as requested by user
+      const supabaseAccounts = await fetchAccountsFromSupabase();
 
-      if (session?.user) {
-        if (session.user.email?.toLowerCase() === 'admin@grockgold.com') {
-          loggedInUsername = 'admin';
-        } else {
-          // Mandate email verification check for normal users (only if not bypassed)
-          if (!session.user.email_confirmed_at && !isBypassed) {
-            console.warn('Session found for unverified email on startup. Signing out.');
-            setUnverifiedEmail(session.user.email || null);
-            await supabase.auth.signOut();
-            localStorage.removeItem('grockgold_logged_in_username_v4');
-            loggedInUsername = null;
-          } else if (session.user.user_metadata?.username) {
-            loggedInUsername = session.user.user_metadata.username;
+      const savedUsername = localStorage.getItem('grockgold_logged_in_username_v4');
+      let loggedInUsername: string | null = null;
+      let matchedAccount: UserAccount | null = null;
+
+      if (session?.user && supabaseAccounts) {
+        const authUser = session.user;
+        matchedAccount = supabaseAccounts.find(acc =>
+          (acc.email && authUser.email && acc.email.toLowerCase() === authUser.email.toLowerCase()) ||
+          (acc.settings?.authUserId === authUser.id) ||
+          (acc.settings?.auth_user_id === authUser.id) ||
+          (authUser.user_metadata?.username && acc.username.toLowerCase() === authUser.user_metadata.username.toLowerCase())
+        ) || null;
+
+        if (matchedAccount) {
+          loggedInUsername = matchedAccount.username;
+          // Ensure relation auth_user_id -> auth.users.id is saved in settings if missing
+          if (matchedAccount.settings?.authUserId !== authUser.id) {
+            updateUserSettingsInSupabase(matchedAccount.username, {
+              ...(matchedAccount.settings || {}),
+              authUserId: authUser.id,
+              auth_user_id: authUser.id
+            }).catch(() => {});
           }
-        }
-      } else {
-        // If no active Supabase Auth session, only clear the local session if NOT bypassed
-        if (!isBypassed) {
-          loggedInUsername = null;
+        } else if (authUser.email?.toLowerCase() === 'admin@grockgold.com') {
+          loggedInUsername = 'admin';
+          matchedAccount = supabaseAccounts.find(a => a.username.toLowerCase() === 'admin') || null;
         }
       }
 
-      const supabaseAccounts = await fetchAccountsFromSupabase(loggedInUsername || undefined);
+      // Fallback: Check localStorage saved username or current active account username
+      if (!matchedAccount && supabaseAccounts && supabaseAccounts.length > 0) {
+        const targetUser = savedUsername || currentAccount?.username;
+        if (targetUser) {
+          matchedAccount = supabaseAccounts.find(a => a.username.toLowerCase() === targetUser.toLowerCase()) || null;
+          if (matchedAccount) {
+            loggedInUsername = matchedAccount.username;
+          }
+        }
+      }
+
       if (supabaseAccounts) {
         setSupabaseError(null);
         setAccounts(supabaseAccounts);
@@ -467,32 +536,35 @@ export default function App() {
           console.warn('sessionStorage setItem failed:', e);
         }
 
-        if (loggedInUsername) {
-          const found = supabaseAccounts.find(acc => acc.username.toLowerCase() === loggedInUsername.toLowerCase());
-          if (found) {
-            setCurrentAccount(found);
-            setState(prev => ({
-              ...prev,
-              ...found.state,
-              isLoggedIn: true,
-            }));
-            if (found.settings?.language) {
-              setLanguage(found.settings.language);
-            }
-            if (found.username.toLowerCase() === 'admin') {
-              if (window.location.pathname === '/admin' || window.location.pathname === '/admin/') {
-                setCurrentTab('admin');
-              }
-            }
-            if (found.settings?.spinTickets !== undefined) setSpinTickets(found.settings.spinTickets);
-            if (found.settings?.spinCount !== undefined) setSpinCount(found.settings.spinCount);
-            if (found.settings?.luckySpinHistory !== undefined) setLuckySpinHistory(found.settings.luckySpinHistory);
-            if (found.settings?.claimedMissions !== undefined) setClaimedMissions(found.settings.claimedMissions);
-            if (found.settings?.claimedMissionsHistory !== undefined) setClaimedMissionsHistory(found.settings.claimedMissionsHistory);
-            if (found.settings?.dailyTaskVisit !== undefined) setDailyTaskVisit(found.settings.dailyTaskVisit);
-            if (found.settings?.dailyTaskClaimed !== undefined) setDailyTaskClaimed(found.settings.dailyTaskClaimed);
-            if (found.settings?.dailyTaskCheck !== undefined) setDailyTaskCheck(found.settings.dailyTaskCheck);
+        if (matchedAccount) {
+          const found = matchedAccount;
+          setCurrentAccount(found);
+          setState(prev => ({
+            ...prev,
+            ...found.state,
+            username: found.username,
+            isLoggedIn: true,
+          }));
+          if (found.settings?.language) {
+            setLanguage(found.settings.language);
           }
+          if (found.username.toLowerCase() === 'admin') {
+            if (window.location.pathname === '/admin' || window.location.pathname === '/admin/') {
+              setCurrentTab('admin');
+            }
+          }
+          if (found.settings?.spinTickets !== undefined) setSpinTickets(found.settings.spinTickets);
+          if (found.settings?.spinCount !== undefined) setSpinCount(found.settings.spinCount);
+          setLuckySpinHistory(found.settings?.luckySpinHistory || []);
+          if (found.settings?.claimedMissions !== undefined) setClaimedMissions(found.settings.claimedMissions);
+          if (found.settings?.claimedMissionsHistory !== undefined) setClaimedMissionsHistory(found.settings.claimedMissionsHistory);
+          if (found.settings?.dailyTaskVisit !== undefined) setDailyTaskVisit(found.settings.dailyTaskVisit);
+          if (found.settings?.dailyTaskClaimed !== undefined) setDailyTaskClaimed(found.settings.dailyTaskClaimed);
+          if (found.settings?.dailyTaskCheck !== undefined) setDailyTaskCheck(found.settings.dailyTaskCheck);
+        } else {
+          setCurrentAccount(null);
+          localStorage.removeItem('grockgold_logged_in_username_v4');
+          setState(prev => ({ ...prev, isLoggedIn: false }));
         }
       } else {
         setSupabaseError('Database returned empty or null user records.');
@@ -1532,14 +1604,11 @@ export default function App() {
 
     setCurrentAccount(found);
 
-    if (rememberMe) {
-      localStorage.setItem('grockgold_logged_in_username_v4', found.username);
-    } else {
-      localStorage.removeItem('grockgold_logged_in_username_v4');
-    }
+    localStorage.setItem('grockgold_logged_in_username_v4', found.username);
 
     setState({
       ...found.state,
+      username: found.username,
       isLoggedIn: true,
     });
 
@@ -1574,6 +1643,7 @@ export default function App() {
     setCurrentAccount(found);
     setState({
       ...found.state,
+      username: found.username,
       isLoggedIn: true,
     });
     
@@ -1630,11 +1700,7 @@ export default function App() {
     // Reset user-specific States
     setSpinTickets(5);
     setSpinCount(0);
-    setLuckySpinHistory([
-      { id: '1', prize: 'Rp 15.000', date: Date.now() - 3600000 * 2.5, success: true },
-      { id: '2', prize: 'Boost 5x', date: Date.now() - 3600000 * 5, success: true },
-      { id: '3', prize: 'ZONK', date: Date.now() - 3600000 * 12, success: false }
-    ]);
+    setLuckySpinHistory([]);
     setClaimedMissions([]);
     setClaimedMissionsHistory([
       { id: 'hist_1', title: 'Registrasi Akun Berhasil', reward: 10000, timestamp: Date.now() - 3600000 * 48 },
@@ -1787,17 +1853,24 @@ export default function App() {
         setRegReferralCode('');
         setRegAgreed(false);
 
-        // Auto-bypass verification
+        // Auto-bypass verification and auto-login newly created account
         localStorage.setItem('grockgold_bypass_verification_v4', 'true');
+        localStorage.setItem('grockgold_logged_in_username_v4', username);
+        setCurrentAccount(newAccount);
+        setState({
+          ...defaultUserState,
+          username: username,
+          isLoggedIn: true,
+        });
         setUnverifiedEmail(null);
         setResendStatus(null);
         triggerModal(
           language === 'id' 
-            ? '🎉 Registrasi berhasil! Silakan masuk ke akun Anda.' 
-            : '🎉 Registration successful! Please log in to your account.', 
+            ? `🎉 Registrasi berhasil! Selamat datang, ${fullName || username}.` 
+            : `🎉 Registration successful! Welcome, ${fullName || username}.`, 
           'success'
         );
-        setAuthScreen('login');
+        setCurrentTab('home');
       } else {
         triggerModal(language === 'id' ? '❌ Gagal membuat akun. Username atau Email mungkin sudah terdaftar.' : '❌ Failed to create account.', 'danger');
       }
@@ -4282,17 +4355,187 @@ export default function App() {
                              >
                                <div className={`w-8 h-8 rounded-lg border flex items-center justify-center mb-1 transition-colors ${menu.color} group-hover:scale-110`}>
                                  <Icon className="w-4 h-4" />
-                               </div>
-                               <span className="text-[9.5px] font-black text-slate-200 group-hover:text-amber-400 transition-colors leading-tight font-orbitron">
-                                 {menu.label}
-                               </span>
-                             </button>
-                           );
-                         })}
-                       </div>
-                     </div>
-
+                                </div>
+                                <span className="text-[9.5px] font-black text-slate-200 group-hover:text-amber-400 transition-colors leading-tight font-orbitron">
+                                  {menu.label}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
+
+                  {/* BONUS MEMBER BARU: SALDO FREE SPIN BANNER */}
+                  <motion.div 
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4, delay: 0.1 }}
+                    className="relative overflow-hidden rounded-3xl min-h-[130px] p-4 sm:p-5 bg-gradient-to-r from-[#14052e] via-[#090217] to-[#1d0640] border-2 border-amber-400/80 shadow-[0_0_30px_rgba(251,191,36,0.35)] flex flex-col sm:flex-row items-center justify-between gap-4"
+                  >
+                    {/* Corner Info Button (Top Right Fixed) */}
+                    <button
+                      onClick={() => {
+                        triggerModal(
+                          language === 'id'
+                            ? `<div class="space-y-0">
+                                <div class="text-center pt-0.5 pb-1">
+                                  <div class="w-14 h-14 mx-auto rounded-full bg-gradient-to-b from-[#3b176e]/90 to-[#1e0a39]/90 border border-purple-400/40 flex items-center justify-center text-2xl shadow-[0_0_20px_rgba(168,85,247,0.35)] mb-2">🎁</div>
+                                  <h3 class="text-[18px] sm:text-[20px] font-bold text-white tracking-wide">Informasi Saldo Free Spin</h3>
+                                  <div class="relative my-2 flex items-center justify-center">
+                                    <div class="w-full border-t border-purple-500/25"></div>
+                                    <span class="absolute bg-[#12072b] px-3 text-purple-400 text-xs">✦</span>
+                                  </div>
+                                </div>
+                                <div class="divide-y divide-purple-500/20 text-slate-200">
+                                  <div class="py-2.5 flex items-start gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">🎉</div>
+                                    <div class="flex-1 text-left">
+                                      <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Bonus Member Baru</div>
+                                      <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">Gratis <span class="text-[#FFD700] font-bold">Rp1.000.000</span> Saldo Free Spin setelah pendaftaran berhasil.</div>
+                                    </div>
+                                  </div>
+                                  <div class="py-2.5 flex items-start gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">👥</div>
+                                    <div class="flex-1 text-left">
+                                      <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Bonus Undang Member</div>
+                                      <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">Setiap berhasil mengundang 1 member baru, Anda memperoleh <span class="text-[#FFD700] font-bold">Rp50.000</span> Saldo Free Spin.</div>
+                                    </div>
+                                  </div>
+                                  <div class="py-2.5 flex items-start gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">🎯</div>
+                                    <div class="flex-1 text-left">
+                                      <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Penggunaan</div>
+                                      <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">Saldo Free Spin hanya dapat digunakan untuk bermain <span class="text-purple-300 font-semibold">Lucky Spin</span>.</div>
+                                    </div>
+                                  </div>
+                                  <div class="py-2.5 flex items-start gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">⚠️</div>
+                                    <div class="flex-1 text-left">
+                                      <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Catatan</div>
+                                      <div class="text-slate-400 text-[13px] sm:text-[14px] leading-relaxed">Saldo Free Spin tidak dapat ditarik maupun ditransfer.</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>`
+                            : `<div class="space-y-0">
+                                <div class="text-center pt-0.5 pb-1">
+                                  <div class="w-14 h-14 mx-auto rounded-full bg-gradient-to-b from-[#3b176e]/90 to-[#1e0a39]/90 border border-purple-400/40 flex items-center justify-center text-2xl shadow-[0_0_20px_rgba(168,85,247,0.35)] mb-2">🎁</div>
+                                  <h3 class="text-[18px] sm:text-[20px] font-bold text-white tracking-wide">Free Spin Balance Info</h3>
+                                  <div class="relative my-2 flex items-center justify-center">
+                                    <div class="w-full border-t border-purple-500/25"></div>
+                                    <span class="absolute bg-[#12072b] px-3 text-purple-400 text-xs">✦</span>
+                                  </div>
+                                </div>
+                                <div class="divide-y divide-purple-500/20 text-slate-200">
+                                  <div class="py-2.5 flex items-start gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">🎉</div>
+                                    <div class="flex-1 text-left">
+                                      <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">New Member Bonus</div>
+                                      <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">Free <span class="text-[#FFD700] font-bold">Rp1,000,000</span> Free Spin Balance upon successful registration.</div>
+                                    </div>
+                                  </div>
+                                  <div class="py-2.5 flex items-start gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">👥</div>
+                                    <div class="flex-1 text-left">
+                                      <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Invite Bonus</div>
+                                      <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">For every 1 new member invited, you receive <span class="text-[#FFD700] font-bold">Rp50,000</span> Free Spin Balance.</div>
+                                    </div>
+                                  </div>
+                                  <div class="py-2.5 flex items-start gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">🎯</div>
+                                    <div class="flex-1 text-left">
+                                      <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Usage</div>
+                                      <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">Free Spin Balance can only be used to play <span class="text-purple-300 font-semibold">Lucky Spin</span>.</div>
+                                    </div>
+                                  </div>
+                                  <div class="py-2.5 flex items-start gap-3">
+                                    <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">⚠️</div>
+                                    <div class="flex-1 text-left">
+                                      <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Note</div>
+                                      <div class="text-slate-400 text-[13px] sm:text-[14px] leading-relaxed">Free Spin Balance cannot be withdrawn or transferred.</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>`,
+                          'info'
+                        );
+                      }}
+                      className="absolute top-3 right-3 sm:top-3.5 sm:right-3.5 w-6 h-6 rounded-full bg-purple-500/20 hover:bg-purple-500/50 border border-purple-300/40 text-purple-200 hover:text-white flex items-center justify-center cursor-pointer transition-all shadow-sm z-20"
+                      title="Info Saldo Free Spin"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Ambient Gold & Purple Background Glows */}
+                    <div className="absolute top-1/2 -left-8 -translate-y-1/2 w-32 h-32 bg-amber-500/15 rounded-full blur-2xl pointer-events-none" />
+                    <div className="absolute top-1/2 -right-8 -translate-y-1/2 w-32 h-32 bg-purple-600/20 rounded-full blur-2xl pointer-events-none" />
+
+                    {/* Left Section: Large Lucky Spin Wheel & Text Info */}
+                    <div className="flex items-center gap-4 sm:gap-5 w-full sm:w-auto relative z-10">
+                      {/* Large Glowing Wheel Graphic */}
+                      <div className="relative shrink-0 w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
+                        {/* Glow backdrop */}
+                        <div className="absolute inset-0 bg-amber-400/20 rounded-full blur-xl pointer-events-none" />
+
+                        {/* Top Indicator Pointer */}
+                        <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[10px] border-t-amber-300 z-30 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]" />
+
+                        {/* Outer Rotating Glowing Wheel */}
+                        <div className="w-14 h-14 sm:w-18 sm:h-18 rounded-full border-2 border-amber-300 bg-amber-950 p-0.5 shadow-[0_0_20px_rgba(251,191,36,0.6)] flex items-center justify-center relative animate-[spin_12s_linear_infinite]">
+                          <svg viewBox="0 0 100 100" className="w-full h-full rounded-full">
+                            {/* Colorful Wheel Segments */}
+                            <path d="M50 50 L50 0 A50 50 0 0 1 100 50 Z" fill="#f59e0b" />
+                            <path d="M50 50 L100 50 A50 50 0 0 1 50 100 Z" fill="#8b5cf6" />
+                            <path d="M50 50 L50 100 A50 50 0 0 1 0 50 Z" fill="#ec4899" />
+                            <path d="M50 50 L0 50 A50 50 0 0 1 50 0 Z" fill="#3b82f6" />
+                            
+                            {/* Inner Dividing Lines */}
+                            <circle cx="50" cy="50" r="48" fill="none" stroke="#fef08a" strokeWidth="2" />
+                            <line x1="50" y1="0" x2="50" y2="100" stroke="#fef08a" strokeWidth="2" />
+                            <line x1="0" y1="50" x2="100" y2="50" stroke="#fef08a" strokeWidth="2" />
+                            
+                            {/* Center Pin */}
+                            <circle cx="50" cy="50" r="14" fill="#1e1b4b" stroke="#fde047" strokeWidth="3" />
+                            <circle cx="50" cy="50" r="6" fill="#f59e0b" />
+                          </svg>
+                        </div>
+
+                        {/* Gift Icon Badge */}
+                        <div className="absolute -bottom-1 -right-1 bg-gradient-to-br from-purple-600 via-fuchsia-600 to-purple-800 p-1.5 sm:p-2 rounded-xl border border-purple-300/80 shadow-[0_0_12px_rgba(168,85,247,0.7)] text-amber-300 z-20 animate-bounce">
+                          <Gift className="w-4 h-4 sm:w-5 sm:h-5 text-amber-300 fill-amber-300/30" />
+                        </div>
+                      </div>
+
+                      {/* Text Info Block */}
+                      <div className="flex flex-col justify-center gap-1">
+                        <span className="text-[11px] sm:text-xs font-black tracking-widest text-purple-200/90 uppercase font-orbitron">
+                          {language === 'id' ? 'SALDO FREE SPIN' : 'FREE SPIN BALANCE'}
+                        </span>
+
+                        <div className="text-2xl sm:text-3xl font-black text-amber-400 font-orbitron tracking-wide leading-none drop-shadow-[0_2px_12px_rgba(251,191,36,0.45)]">
+                          Rp {(state.freeSpinBalance ?? 1000000).toLocaleString('id-ID')}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                          <div className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-fuchsia-300 uppercase tracking-wider bg-fuchsia-950/60 border border-fuchsia-500/30 px-2.5 py-0.5 rounded-full w-fit">
+                            <span>✨</span>
+                            <span>{language === 'id' ? 'BONUS MEMBER BARU' : 'NEW MEMBER BONUS'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right Section: Gold Glowing Action Button */}
+                    <button
+                      onClick={() => setCurrentTab('luckyspin')}
+                      className="w-full sm:w-auto bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 hover:from-yellow-200 hover:to-amber-400 active:scale-95 text-black font-black text-xs sm:text-sm tracking-wider py-3 sm:py-3.5 px-5 sm:px-6 rounded-2xl shadow-[0_0_25px_rgba(234,179,8,0.55)] flex items-center justify-center gap-2 cursor-pointer transition-all uppercase shrink-0 border border-yellow-200 relative z-10 group animate-pulse"
+                    >
+                      <Compass className="w-4 h-4 text-black group-hover:rotate-45 transition-transform duration-300" />
+                      <span>{language === 'id' ? 'MAIN LUCKY SPIN' : 'PLAY LUCKY SPIN'}</span>
+                      <ChevronRight className="w-4 h-4 text-black group-hover:translate-x-1 transition-transform duration-300" />
+                    </button>
+                  </motion.div>
                   
                   {/* SLEEK & SIMPLE PORTFOLIO CARD */}
                     <div className="relative overflow-hidden bg-gradient-to-br from-[#2a1b08] via-[#120a24] to-[#05030e] border border-amber-500/40 rounded-3xl p-4 shadow-[0_0_25px_rgba(245,158,11,0.12)] transition duration-300">
@@ -4528,213 +4771,7 @@ export default function App() {
 
 
               {/* 🎡 LUCKY SPIN VIEW */}
-              {currentTab === 'luckyspin' && (
-                <div className="space-y-4">
-                  {/* Header */}
-                  <div className="flex items-center gap-2 border-b border-purple-500/15 pb-3">
-                    <ChevronLeft className="w-5 h-5 text-slate-400 cursor-pointer hover:text-white transition" onClick={() => setCurrentTab('home')} />
-                    <h2 className="text-xs font-black tracking-widest text-white uppercase bg-gradient-to-r from-fuchsia-400 via-pink-400 to-purple-400 bg-clip-text text-transparent font-orbitron">
-                      {language === 'id' ? 'RODA BERHADIAH' : 'LUCKY SPIN WHEEL'}
-                    </h2>
-                  </div>
-
-                  {/* Free Spin Timer / Ticket Counter */}
-                  <div className="bg-gradient-to-br from-[#1b082e] to-[#0a0314] border border-fuchsia-500/20 rounded-3xl p-4 shadow-xl flex justify-between items-center">
-                    <div>
-                      <span className="text-[8.5px] font-black tracking-widest text-fuchsia-400 block uppercase mb-1">{language === 'id' ? 'TIKET PUTARAN' : 'AVAILABLE SPINS'}</span>
-                      <div className="text-xl font-black text-white font-orbitron flex items-center gap-1.5 leading-none">
-                        🎟️ {spinTickets} <span className="text-[9.5px] text-slate-500 font-sans font-extrabold uppercase">Tickets</span>
-                      </div>
-                    </div>
-                    <div className="bg-black/55 border border-white/5 rounded-2xl px-3.5 py-2.5 text-right">
-                      <span className="text-[7.5px] text-slate-500 font-bold block uppercase mb-0.5">{language === 'id' ? 'TIKET GRATIS BERIKUTNYA' : 'NEXT FREE SPIN'}</span>
-                      <span className="text-[11px] font-mono font-black text-amber-400 animate-pulse">02:45:12</span>
-                    </div>
-                  </div>
-
-                  {/* Physical Rotating Wheel Canvas Area */}
-                  <div className="bg-[#0b0519] border border-purple-500/10 rounded-3xl p-6 shadow-xl flex flex-col items-center justify-center relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-fuchsia-500/5 rounded-full blur-3xl pointer-events-none" />
-                    
-                    {/* Glowing outer ring */}
-                    <div className="relative w-56 h-56 rounded-full border-4 border-yellow-500 bg-[#120735] shadow-[0_0_25px_rgba(234,179,8,0.45)] flex items-center justify-center overflow-hidden mb-6 z-10"
-                      style={{ 
-                        transform: `rotate(${spinRotation}deg)`,
-                        transition: isSpinning ? 'transform 3.6s cubic-bezier(0.15, 0.85, 0.15, 1)' : 'none'
-                      }}
-                    >
-                      {/* Outer Ring Circle details */}
-                      <div className="absolute inset-0 border-8 border-purple-900/40 pointer-events-none z-20" />
-                      
-                      {/* segments */}
-                      {SPIN_ITEMS.map((item, idx) => {
-                        const angle = idx * 45;
-                        return (
-                          <div 
-                            key={idx}
-                            className="absolute inset-0 origin-center"
-                            style={{ transform: `rotate(${angle}deg)` }}
-                          >
-                            {/* Line separator */}
-                            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1.5px] h-1/2 bg-yellow-500/25 origin-bottom z-10" />
-                            
-                            {/* Segment text label rotating to fit segment triangle */}
-                            <div className="absolute top-5 left-1/2 -translate-x-1/2 text-[9px] font-black uppercase text-center"
-                              style={{ 
-                                transform: 'rotate(22.5deg)',
-                                color: item.type === 'zonk' ? '#94a3b8' : item.type === 'boost' ? '#38bdf8' : '#facc15'
-                              }}
-                            >
-                              <div>{item.label}</div>
-                              <div className="text-[6px] opacity-40 leading-none mt-0.5">{item.type === 'zonk' ? '❌' : '💰'}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {/* Golden Spinner Center Pin Hub */}
-                      <div className="absolute w-12 h-12 bg-gradient-to-br from-yellow-300 via-amber-400 to-yellow-600 rounded-full border-2 border-white/90 z-30 shadow-2xl flex items-center justify-center font-black text-black text-[9px] tracking-wide uppercase leading-none">
-                        GGM
-                      </div>
-                    </div>
-
-                    {/* Wheel pointer at the top */}
-                    <div className="absolute top-4 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[20px] border-t-yellow-400 z-30 filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" />
-
-                    {/* SPIN TRIGGER BUTTON */}
-                    <button
-                      onClick={() => {
-                        if (isSpinning) return;
-                        if (spinTickets <= 0) {
-                          triggerModal(
-                            language === 'id'
-                              ? '❌ TIKET HABIS\n\nTiket Lucky Spin Anda sudah habis. Silakan tunggu hitung mundur atau selesaikan misi harian untuk mendapatkan lebih banyak tiket spin gratis!'
-                              : '❌ OUT OF TICKETS\n\nYour Lucky Spin tickets have run out. Please wait for the countdown or complete missions to get more free spin tickets!',
-                            'warning'
-                          );
-                          return;
-                        }
-
-                        const randomIndex = Math.floor(Math.random() * SPIN_ITEMS.length);
-                        const degreePerSegment = 360 / SPIN_ITEMS.length;
-                        const extraSpins = 6;
-                        const targetRotation = spinRotation + (extraSpins * 360) + (360 - (randomIndex * degreePerSegment)) - (spinRotation % 360);
-
-                        setIsSpinning(true);
-                        setSpinRotation(targetRotation);
-                        setSpinPrizeIndex(randomIndex);
-                        setSpinTickets(prev => prev - 1);
-                        setSpinCount(prev => prev + 1);
-
-                        setTimeout(() => {
-                          setIsSpinning(false);
-                          const prize = SPIN_ITEMS[randomIndex];
-                          
-                          const newHistoryItem = {
-                            id: Date.now().toString(),
-                            prize: prize.label,
-                            date: Date.now(),
-                            success: prize.type !== 'zonk'
-                          };
-                          setLuckySpinHistory(prev => [newHistoryItem, ...prev]);
-
-                          if (prize.type === 'cash') {
-                            const newTx: Transaction = {
-                              id: 'SPN-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
-                              type: 'reward',
-                              amount: prize.value,
-                              date: Date.now(),
-                              description: language === 'id' ? `Hadiah Lucky Spin Wheel` : `Lucky Spin Wheel Prize`,
-                            };
-                            
-                            updateState(prev => ({
-                              ...prev,
-                              mainBalance: prev.mainBalance + prize.value,
-                              totalEarned: prev.totalEarned + prize.value,
-                              transactions: [newTx, ...prev.transactions],
-                            }), true);
-
-                            triggerModal(
-                              language === 'id'
-                                ? `🎉 SELAMAT!\n\nAnda memenangkan Saldo sebesar Rp ${prize.value.toLocaleString('id-ID')} dari Lucky Spin Wheel!\n\nHadiah telah ditambahkan ke Saldo Utama Anda.`
-                                : `🎉 CONGRATULATIONS!\n\nYou won a Balance of Rp ${prize.value.toLocaleString('id-ID')} from the Lucky Spin Wheel!\n\nThe prize has been added to your Main Balance.`,
-                              'success'
-                            );
-                          } else if (prize.type === 'boost') {
-                            setBoostTimeLeft(300);
-                            setShowBoosterRipple(true);
-                            triggerModal(
-                              language === 'id'
-                                ? `⚡ BOOSTER AKTIF!\n\nAnda memenangkan Booster Kecepatan Tambang ${prize.value}x selama 5 menit!\n\nKecepatan penambangan kontrak Anda meningkat secara masif!`
-                                : `⚡ BOOSTER ACTIVE!\n\nYou won a ${prize.value}x Mining Speed Booster for 5 minutes!\n\nYour mining speed has increased massively!`,
-                              'success'
-                            );
-                          } else {
-                            triggerModal(
-                              language === 'id'
-                                ? `😢 ZONK!\n\nSayang sekali, putaran Anda mendarat di Zonk. Jangan menyerah, silakan coba lagi!`
-                                : `😢 ZONK!\n\nBad luck! Your spin landed on Zonk. Don't give up, try again!`,
-                              'info'
-                            );
-                          }
-                        }, 3600);
-                      }}
-                      disabled={isSpinning || spinTickets <= 0}
-                      className={`w-full max-w-[200px] py-3.5 rounded-2xl text-[11px] font-black tracking-widest uppercase transition-all duration-300 shadow-lg ${isSpinning ? 'bg-purple-950 border border-white/5 text-slate-500 cursor-not-allowed' : spinTickets === 0 ? 'bg-slate-900 border border-white/5 text-slate-500 cursor-not-allowed' : 'bg-gradient-to-r from-yellow-300 via-gold-primary to-yellow-500 text-black hover:brightness-110 active:scale-95 cursor-pointer shadow-yellow-500/20'}`}
-                    >
-                      {isSpinning ? (language === 'id' ? 'MEMUTAR...' : 'SPINNING...') : spinTickets === 0 ? (language === 'id' ? 'TIKET HABIS' : 'OUT OF TICKETS') : (language === 'id' ? 'PUTAR SEKARANG' : 'SPIN NOW')}
-                    </button>
-                  </div>
-
-                  {/* Possible Prizes Table list */}
-                  <div className="bg-[#0b0519] border border-white/5 rounded-3xl p-4 shadow-xl space-y-3">
-                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{language === 'id' ? 'Daftar Hadiah Tersedia' : 'Available Prizes & Odds'}</div>
-                    
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex items-center gap-1.5 text-[9px] text-slate-300 bg-white/[0.01] p-2 rounded-xl border border-white/5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                        <span>{language === 'id' ? 'Rp 50.000 Tunai' : 'Rp 50,000 Cash'}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[9px] text-slate-300 bg-white/[0.01] p-2 rounded-xl border border-white/5">
-                        <span className="w-2 h-2 rounded-full bg-cyan-500" />
-                        <span>{language === 'id' ? 'Boost Tambang 10x' : '10x Mine Boost'}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[9px] text-slate-300 bg-white/[0.01] p-2 rounded-xl border border-white/5">
-                        <span className="w-2 h-2 rounded-full bg-indigo-500" />
-                        <span>{language === 'id' ? 'Rp 25.000 Tunai' : 'Rp 25,000 Cash'}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[9px] text-slate-300 bg-white/[0.01] p-2 rounded-xl border border-white/5">
-                        <span className="w-2 h-2 rounded-full bg-fuchsia-500" />
-                        <span>{language === 'id' ? 'Boost Tambang 5x' : '5x Mine Boost'}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Spin Result History */}
-                  <div className="bg-[#0b0519] border border-white/5 rounded-3xl p-4 shadow-xl space-y-3">
-                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">{language === 'id' ? 'Riwayat Putaran Anda' : 'Your Spin History'}</div>
-                    
-                    <div className="space-y-2">
-                      {luckySpinHistory.map((item, idx) => (
-                        <div key={`${item.id}-${idx}`} className="flex justify-between items-center p-2.5 rounded-xl bg-white/[0.01] border border-white/5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs">🎟️</span>
-                            <span className="text-[10px] font-black text-white">{language === 'id' ? 'Putaran Berhasil' : 'Successful Spin'}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-black ${item.success ? 'text-emerald-400' : 'text-slate-500'}`}>
-                              {item.prize}
-                            </span>
-                            <span className="text-[8px] text-slate-505 font-mono">
-                              {new Date(item.date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
+              {currentTab === 'luckyspin' && <LuckySpinPage calculateCountdown={calculateLuckySpinCountdown} />}
 
               {/* ⚡ LIVE MINING VIEW */}
               {currentTab === 'livemining' && (
@@ -6944,123 +6981,17 @@ export default function App() {
                 initial={{ opacity: 0, scale: 0.93, y: 15 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.93, y: 15 }}
-                className="w-full max-w-sm bg-[#0e0722] border border-[#3c1d70] rounded-3xl p-5 shadow-2xl relative overflow-hidden"
+                className="w-full max-w-md bg-[#0e0722] border border-[#3c1d70] rounded-3xl p-5 shadow-2xl relative overflow-y-auto max-h-[90vh]"
               >
                 {/* Close Button */}
                 <button
-                  onClick={() => !isSpinning && setLuckySpinModalOpen(false)}
-                  disabled={isSpinning}
-                  className="absolute top-4.5 right-4.5 text-slate-400 hover:text-white transition p-1.5 rounded-full hover:bg-white/5 disabled:opacity-20 disabled:cursor-not-allowed z-30 animate-none"
+                  onClick={() => setLuckySpinModalOpen(false)}
+                  className="absolute top-4 right-4 text-slate-400 hover:text-white transition p-1.5 rounded-full hover:bg-white/5 z-30"
                 >
                   <X className="w-5 h-5" />
                 </button>
 
-                {/* Header */}
-                <div className="text-center mb-5 mt-1">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-fuchsia-500/10 border border-fuchsia-500/20 rounded-full text-[10px] font-black text-fuchsia-400 uppercase tracking-widest mb-1.5">
-                    <Compass className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: isSpinning ? '1s' : '4s' }} />
-                    LUCKY SPIN WHEEL
-                  </div>
-                  <h3 className="text-xl font-extrabold text-white leading-tight">
-                    {language === 'id' ? 'Putar & Menang Saldo' : 'Spin & Win Gold Balance'}
-                  </h3>
-                  <p className="text-[10px] text-slate-400 mt-1 max-w-[250px] mx-auto leading-relaxed">
-                    {language === 'id' ? 'Dapatkan saldo utama gratis atau mining booster kecepatan penambangan!' : 'Get free main balance or mining boosters to speed up earnings!'}
-                  </p>
-                </div>
-
-                {/* Divider */}
-                <div className="w-full h-[1px] bg-purple-500/15 mb-6" />
-
-                {/* The Rotating Wheel Container */}
-                <div className="flex flex-col items-center justify-center mb-6 relative">
-                  {/* Outer Glowing Border Ring */}
-                  <div className="absolute -inset-1.5 bg-gradient-to-r from-[#7209b7] via-[#da70d6] to-[#f8961e] rounded-full blur-sm opacity-50 animate-pulse" />
-
-                  {/* Pointer at the Top */}
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-2.5 w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[20px] border-t-yellow-400 z-30 filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" />
-
-                  {/* Physical Wheel Circular Div */}
-                  <div 
-                    className="relative w-48 h-48 rounded-full border-4 border-yellow-500 bg-[#120735] shadow-[0_0_20px_rgba(234,179,8,0.35)] overflow-hidden flex items-center justify-center z-10"
-                    style={{ 
-                      transform: `rotate(${spinRotation}deg)`,
-                      transition: isSpinning ? 'transform 3.6s cubic-bezier(0.15, 0.85, 0.15, 1)' : 'none'
-                    }}
-                  >
-                    {/* Render Segments */}
-                    {SPIN_ITEMS.map((item, idx) => {
-                      const angle = idx * 45;
-                      return (
-                        <div 
-                          key={idx}
-                          className="absolute inset-0 origin-center"
-                          style={{ transform: `rotate(${angle}deg)` }}
-                        >
-                          {/* Segment Colored Triangle / Slice */}
-                          <div 
-                            className="absolute top-0 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[41px] border-l-transparent border-r-[41px] border-r-transparent border-t-[96px]"
-                            style={{ borderTopColor: item.color }}
-                          />
-                          {/* Segment Text Label */}
-                          <div className="absolute top-2.5 left-1/2 -translate-x-1/2 -rotate-90 origin-top text-center w-24">
-                            <span className="text-[8px] font-black tracking-tighter text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] block uppercase leading-none">
-                              {item.label}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {/* Golden Center Pin / Hub */}
-                    <div className="absolute w-10 h-10 rounded-full bg-gradient-to-br from-yellow-300 to-yellow-600 border-2 border-white/60 z-20 shadow-md shadow-black flex items-center justify-center">
-                      <div className="w-5 h-5 rounded-full bg-black/40 flex items-center justify-center">
-                        <div className="w-2 h-2 rounded-full bg-yellow-400" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Spin Button */}
-                <button
-                  onClick={handleSpin}
-                  disabled={isSpinning}
-                  className={`w-full py-3 rounded-2xl text-xs font-black tracking-wider uppercase transition-all duration-300 relative overflow-hidden flex items-center justify-center gap-2 ${
-                    isSpinning
-                      ? 'bg-purple-950/40 text-purple-400 border border-purple-500/10 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-yellow-400 via-yellow-500 to-yellow-600 text-black hover:brightness-110 active:scale-95 shadow-lg shadow-yellow-500/20 font-black cursor-pointer'
-                  }`}
-                >
-                  <Compass className={`w-4 h-4 ${isSpinning ? 'animate-spin text-purple-400' : 'text-black'}`} />
-                  {isSpinning 
-                    ? (language === 'id' ? 'MEMUTAR...' : 'SPINNING...') 
-                    : (language === 'id' ? 'PUTAR SEKARANG' : 'SPIN NOW')}
-                </button>
-
-                {/* Prize Table Info */}
-                <div className="mt-4 bg-[#080315] border border-purple-500/10 rounded-xl p-3">
-                  <span className="text-[8px] font-black text-slate-500 tracking-wider block mb-1.5 uppercase text-center">
-                    {language === 'id' ? 'DAFTAR HADIAH UTAMA' : 'MAIN REWARDS LIST'}
-                  </span>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <div className="flex items-center gap-1.5 text-[9px] text-slate-300 bg-white/[0.01] p-1.5 rounded-lg border border-white/5">
-                      <span className="w-2 h-2 rounded-full bg-[#f8961e]" />
-                      <span>{language === 'id' ? 'Rp 50.000 Tunai' : 'Rp 50,000 Cash'}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[9px] text-slate-300 bg-white/[0.01] p-1.5 rounded-lg border border-white/5">
-                      <span className="w-2 h-2 rounded-full bg-[#f8961e]" />
-                      <span>{language === 'id' ? 'Rp 25.000 Tunai' : 'Rp 25,000 Cash'}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[9px] text-slate-300 bg-white/[0.01] p-1.5 rounded-lg border border-white/5">
-                      <span className="w-2 h-2 rounded-full bg-[#f8961e]" />
-                      <span>{language === 'id' ? 'Boost Tambang 10x' : '10x Mine Boost'}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[9px] text-slate-300 bg-white/[0.01] p-1.5 rounded-lg border border-white/5">
-                      <span className="w-2 h-2 rounded-full bg-[#f8961e]" />
-                      <span>{language === 'id' ? 'Boost Tambang 5x' : '5x Mine Boost'}</span>
-                    </div>
-                  </div>
-                </div>
+                <LuckySpinPage />
               </motion.div>
             </div>
           )}

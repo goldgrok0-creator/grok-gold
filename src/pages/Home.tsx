@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { 
-  Eye, EyeOff, Coins, Cpu, Sparkles, Gift, Trophy, Compass, Network, Briefcase, Clock 
+  Eye, EyeOff, Coins, Cpu, Sparkles, Gift, Trophy, Compass, Network, Briefcase, Clock, Info, ChevronRight 
 } from 'lucide-react';
 import { useAppState } from '../AppContext';
 import { useContract } from '../hooks/useContract';
@@ -22,6 +22,7 @@ const Home: React.FC<HomeProps> = ({ setHarvestModalOpen }) => {
     setHideBalance,
     isSyncing,
     setCurrentTab,
+    triggerModal,
     claimCooldownText
   } = useAppState();
 
@@ -207,6 +208,177 @@ const Home: React.FC<HomeProps> = ({ setHarvestModalOpen }) => {
           </div>
         </div>
       </div>
+
+      {/* BONUS MEMBER BARU: SALDO FREE SPIN BANNER */}
+      <motion.div 
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="relative overflow-hidden rounded-3xl min-h-[130px] p-4 sm:p-5 bg-gradient-to-r from-[#14052e] via-[#090217] to-[#1d0640] border-2 border-amber-400/80 shadow-[0_0_30px_rgba(251,191,36,0.35)] flex flex-col sm:flex-row items-center justify-between gap-4"
+      >
+        {/* Corner Info Button (Top Right Fixed) */}
+        <button
+          onClick={() => {
+            triggerModal(
+              language === 'id'
+                ? `<div class="space-y-0">
+                    <div class="text-center pt-0.5 pb-1">
+                      <div class="w-14 h-14 mx-auto rounded-full bg-gradient-to-b from-[#3b176e]/90 to-[#1e0a39]/90 border border-purple-400/40 flex items-center justify-center text-2xl shadow-[0_0_20px_rgba(168,85,247,0.35)] mb-2">🎁</div>
+                      <h3 class="text-[18px] sm:text-[20px] font-bold text-white tracking-wide">Informasi Saldo Free Spin</h3>
+                      <div class="relative my-2 flex items-center justify-center">
+                        <div class="w-full border-t border-purple-500/25"></div>
+                        <span class="absolute bg-[#12072b] px-3 text-purple-400 text-xs">✦</span>
+                      </div>
+                    </div>
+                    <div class="divide-y divide-purple-500/20 text-slate-200">
+                      <div class="py-2.5 flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">🎉</div>
+                        <div class="flex-1 text-left">
+                          <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Bonus Member Baru</div>
+                          <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">Gratis <span class="text-[#FFD700] font-bold">Rp1.000.000</span> Saldo Free Spin setelah pendaftaran berhasil.</div>
+                        </div>
+                      </div>
+                      <div class="py-2.5 flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">👥</div>
+                        <div class="flex-1 text-left">
+                          <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Bonus Undang Member</div>
+                          <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">Setiap berhasil mengundang 1 member baru, Anda memperoleh <span class="text-[#FFD700] font-bold">Rp50.000</span> Saldo Free Spin.</div>
+                        </div>
+                      </div>
+                      <div class="py-2.5 flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">🎯</div>
+                        <div class="flex-1 text-left">
+                          <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Penggunaan</div>
+                          <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">Saldo Free Spin hanya dapat digunakan untuk bermain <span class="text-purple-300 font-semibold">Lucky Spin</span>.</div>
+                        </div>
+                      </div>
+                      <div class="py-2.5 flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">⚠️</div>
+                        <div class="flex-1 text-left">
+                          <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Catatan</div>
+                          <div class="text-slate-400 text-[13px] sm:text-[14px] leading-relaxed">Saldo Free Spin tidak dapat ditarik maupun ditransfer.</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>`
+                : `<div class="space-y-0">
+                    <div class="text-center pt-0.5 pb-1">
+                      <div class="w-14 h-14 mx-auto rounded-full bg-gradient-to-b from-[#3b176e]/90 to-[#1e0a39]/90 border border-purple-400/40 flex items-center justify-center text-2xl shadow-[0_0_20px_rgba(168,85,247,0.35)] mb-2">🎁</div>
+                      <h3 class="text-[18px] sm:text-[20px] font-bold text-white tracking-wide">Free Spin Balance Info</h3>
+                      <div class="relative my-2 flex items-center justify-center">
+                        <div class="w-full border-t border-purple-500/25"></div>
+                        <span class="absolute bg-[#12072b] px-3 text-purple-400 text-xs">✦</span>
+                      </div>
+                    </div>
+                    <div class="divide-y divide-purple-500/20 text-slate-200">
+                      <div class="py-2.5 flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">🎉</div>
+                        <div class="flex-1 text-left">
+                          <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">New Member Bonus</div>
+                          <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">Free <span class="text-[#FFD700] font-bold">Rp1,000,000</span> Free Spin Balance upon successful registration.</div>
+                        </div>
+                      </div>
+                      <div class="py-2.5 flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">👥</div>
+                        <div class="flex-1 text-left">
+                          <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Invite Bonus</div>
+                          <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">For every 1 new member invited, you receive <span class="text-[#FFD700] font-bold">Rp50,000</span> Free Spin Balance.</div>
+                        </div>
+                      </div>
+                      <div class="py-2.5 flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">🎯</div>
+                        <div class="flex-1 text-left">
+                          <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Usage</div>
+                          <div class="text-slate-300 text-[13px] sm:text-[14px] leading-relaxed">Free Spin Balance can only be used to play <span class="text-purple-300 font-semibold">Lucky Spin</span>.</div>
+                        </div>
+                      </div>
+                      <div class="py-2.5 flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-[#210d43] border border-purple-500/30 flex items-center justify-center text-xl shrink-0 shadow-inner mt-0.5">⚠️</div>
+                        <div class="flex-1 text-left">
+                          <div class="font-bold text-white text-[14px] sm:text-[15px] mb-0.5">Note</div>
+                          <div class="text-slate-400 text-[13px] sm:text-[14px] leading-relaxed">Free Spin Balance cannot be withdrawn or transferred.</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>`,
+              'info'
+            );
+          }}
+          className="absolute top-3 right-3 sm:top-3.5 sm:right-3.5 w-6 h-6 rounded-full bg-purple-500/20 hover:bg-purple-500/50 border border-purple-300/40 text-purple-200 hover:text-white flex items-center justify-center cursor-pointer transition-all shadow-sm z-20"
+          title="Info Saldo Free Spin"
+        >
+          <Info className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Ambient Gold & Purple Background Glows */}
+        <div className="absolute top-1/2 -left-8 -translate-y-1/2 w-32 h-32 bg-amber-500/15 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute top-1/2 -right-8 -translate-y-1/2 w-32 h-32 bg-purple-600/20 rounded-full blur-2xl pointer-events-none" />
+
+        {/* Left Section: Large Lucky Spin Wheel & Text Info */}
+        <div className="flex items-center gap-4 sm:gap-5 w-full sm:w-auto relative z-10">
+          {/* Large Glowing Wheel Graphic */}
+          <div className="relative shrink-0 w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
+            {/* Glow backdrop */}
+            <div className="absolute inset-0 bg-amber-400/20 rounded-full blur-xl pointer-events-none" />
+
+            {/* Top Indicator Pointer */}
+            <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[10px] border-t-amber-300 z-30 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]" />
+
+            {/* Outer Rotating Glowing Wheel */}
+            <div className="w-14 h-14 sm:w-18 sm:h-18 rounded-full border-2 border-amber-300 bg-amber-950 p-0.5 shadow-[0_0_20px_rgba(251,191,36,0.6)] flex items-center justify-center relative animate-[spin_12s_linear_infinite]">
+              <svg viewBox="0 0 100 100" className="w-full h-full rounded-full">
+                {/* Colorful Wheel Segments */}
+                <path d="M50 50 L50 0 A50 50 0 0 1 100 50 Z" fill="#f59e0b" />
+                <path d="M50 50 L100 50 A50 50 0 0 1 50 100 Z" fill="#8b5cf6" />
+                <path d="M50 50 L50 100 A50 50 0 0 1 0 50 Z" fill="#ec4899" />
+                <path d="M50 50 L0 50 A50 50 0 0 1 50 0 Z" fill="#3b82f6" />
+                
+                {/* Inner Dividing Lines */}
+                <circle cx="50" cy="50" r="48" fill="none" stroke="#fef08a" strokeWidth="2" />
+                <line x1="50" y1="0" x2="50" y2="100" stroke="#fef08a" strokeWidth="2" />
+                <line x1="0" y1="50" x2="100" y2="50" stroke="#fef08a" strokeWidth="2" />
+                
+                {/* Center Pin */}
+                <circle cx="50" cy="50" r="14" fill="#1e1b4b" stroke="#fde047" strokeWidth="3" />
+                <circle cx="50" cy="50" r="6" fill="#f59e0b" />
+              </svg>
+            </div>
+
+            {/* Gift Icon Badge */}
+            <div className="absolute -bottom-1 -right-1 bg-gradient-to-br from-purple-600 via-fuchsia-600 to-purple-800 p-1.5 sm:p-2 rounded-xl border border-purple-300/80 shadow-[0_0_12px_rgba(168,85,247,0.7)] text-amber-300 z-20 animate-bounce">
+              <Gift className="w-4 h-4 sm:w-5 sm:h-5 text-amber-300 fill-amber-300/30" />
+            </div>
+          </div>
+
+          {/* Text Info Block */}
+          <div className="flex flex-col justify-center gap-1">
+            <span className="text-[11px] sm:text-xs font-black tracking-widest text-purple-200/90 uppercase font-orbitron">
+              {language === 'id' ? 'SALDO FREE SPIN' : 'FREE SPIN BALANCE'}
+            </span>
+
+            <div className="text-2xl sm:text-3xl font-black text-amber-400 font-orbitron tracking-wide leading-none drop-shadow-[0_2px_12px_rgba(251,191,36,0.45)]">
+              Rp {(state.freeSpinBalance ?? 1000000).toLocaleString('id-ID')}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+              <div className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-fuchsia-300 uppercase tracking-wider bg-fuchsia-950/60 border border-fuchsia-500/30 px-2.5 py-0.5 rounded-full w-fit">
+                <span>✨</span>
+                <span>{language === 'id' ? 'BONUS MEMBER BARU' : 'NEW MEMBER BONUS'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Section: Gold Glowing Action Button */}
+        <button
+          onClick={() => setCurrentTab('luckyspin')}
+          className="w-full sm:w-auto bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 hover:from-yellow-200 hover:to-amber-400 active:scale-95 text-black font-black text-xs sm:text-sm tracking-wider py-3 sm:py-3.5 px-5 sm:px-6 rounded-2xl shadow-[0_0_25px_rgba(234,179,8,0.55)] flex items-center justify-center gap-2 cursor-pointer transition-all uppercase shrink-0 border border-yellow-200 relative z-10 group animate-pulse"
+        >
+          <Compass className="w-4 h-4 text-black group-hover:rotate-45 transition-transform duration-300" />
+          <span>{language === 'id' ? 'MAIN LUCKY SPIN' : 'PLAY LUCKY SPIN'}</span>
+          <ChevronRight className="w-4 h-4 text-black group-hover:translate-x-1 transition-transform duration-300" />
+        </button>
+      </motion.div>
 
       {/* SLEEK & SIMPLE PORTFOLIO CARD */}
       <div className="relative overflow-hidden bg-gradient-to-br from-[#2a1b08] via-[#120a24] to-[#05030e] border border-amber-500/40 rounded-3xl p-4 shadow-[0_0_25px_rgba(245,158,11,0.12)] transition duration-300">

@@ -44,6 +44,8 @@ export interface UserAccount {
   createdAt: number;
   state: AppState;
   settings: {
+    authUserId?: string;
+    auth_user_id?: string;
     language: 'id' | 'en';
     notificationsEnabled: boolean;
     autoReinvest: boolean;
@@ -52,6 +54,10 @@ export interface UserAccount {
     bankHolder?: string;
     spinTickets?: number;
     spinCount?: number;
+    freeSpinBalance?: number;
+    bonusSpinBalance?: number;
+    rewardSpinWallet?: number;
+    lastSpinResetAt?: number;
     luckySpinHistory?: Array<{ id: string; prize: string; date: number; success: boolean }>;
     claimedMissions?: string[];
     claimedMissionsHistory?: Array<{ id: string; title: string; reward: number; timestamp: number }>;
@@ -72,6 +78,8 @@ export function isMemberAccount(acc: UserAccount | null | undefined): boolean {
 
 export interface AppState {
   mainBalance: number;
+  freeSpinBalance?: number;
+  bonusSpinBalance?: number;
   activeContracts: number;
   totalEarned: number;
   referralEarned: number;
@@ -119,6 +127,10 @@ export const CONFIG = {
   CLAIM_COOLDOWN: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
   MIN_DEPOSIT: 100000,
   MIN_WITHDRAW: 100000,
+  SPIN_COST: 100000,
+  MAX_DAILY_SPINS: 3,
+  WELCOME_FREE_SPIN_BONUS: 1000000,
+  REFERRAL_FREE_SPIN_BONUS: 50000,
 };
 
 export interface Upgrade {
