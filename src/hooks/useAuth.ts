@@ -3,7 +3,7 @@ import { useAppState } from '../AppContext';
 import { authService } from '../services/authService';
 import { TRANSLATIONS } from '../translations';
 import { AppState, UserAccount } from '../types';
-import { supabase, hashPassword } from '../supabase';
+import { supabase, hashPassword, fetchAccountsFromSupabase } from '../supabase';
 
 export const useAuth = () => {
   const {
@@ -106,7 +106,20 @@ export const useAuth = () => {
       setIsLoading(false);
     }
 
-    const finalAccount = targetAccount || {
+    let freshAccount: UserAccount | null = null;
+    try {
+      const fetchedAccounts = await fetchAccountsFromSupabase(userUsername);
+      if (fetchedAccounts && fetchedAccounts.length > 0) {
+        freshAccount = fetchedAccounts.find(a => a.username.toLowerCase() === userUsername.toLowerCase()) || null;
+      }
+    } catch (e) {
+      console.warn('Could not fetch fresh account on login:', e);
+    }
+
+    const rawFreeSpinBal = dbUser ? (dbUser.state?.freeSpinBalance ?? dbUser.settings?.freeSpinBalance ?? 1000000) : 1000000;
+    const rawBonusSpinBal = dbUser ? (dbUser.state?.bonusSpinBalance ?? dbUser.settings?.bonusSpinBalance ?? 0) : 0;
+
+    const finalAccount = freshAccount || targetAccount || {
       fullName: dbUser.full_name || '',
       username: dbUser.username,
       email: dbUser.email || '',
@@ -118,7 +131,8 @@ export const useAuth = () => {
       settings: dbUser.settings || { language: 'id', notificationsEnabled: true, autoReinvest: false },
       state: {
         mainBalance: Number(dbUser.main_balance) || 0,
-        freeSpinBalance: dbUser.settings?.freeSpinBalance ?? 1000000,
+        freeSpinBalance: rawFreeSpinBal,
+        bonusSpinBalance: rawBonusSpinBal,
         activeContracts: Number(dbUser.active_contracts) || 0,
         totalEarned: Number(dbUser.total_earned) || 0,
         referralEarned: Number(dbUser.referral_earned) || 0,
@@ -344,10 +358,16 @@ export const useAuth = () => {
     };
 
     setIsLoading(true);
+    await authService.logout().catch(() => {});
     const success = await authService.registerUser(newAccount);
-    setIsLoading(false);
 
     if (success) {
+      try {
+        await authService.loginWithSupabase(email, password, false);
+      } catch (e) {
+        console.warn("Auto login after registration failed silently:", e);
+      }
+      setIsLoading(false);
       localStorage.setItem('grockgold_logged_in_username_v4', username);
       setCurrentAccount(newAccount);
       setState({

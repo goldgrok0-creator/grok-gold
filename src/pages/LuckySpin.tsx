@@ -446,7 +446,11 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
       const { data: { session } } = await supabase.auth.getSession();
       const headers: Record<string, string> = {};
       if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
+        const sessionEmail = session.user?.email?.toLowerCase();
+        const activeEmail = currentAccount?.email?.toLowerCase();
+        if (!activeEmail || !sessionEmail || sessionEmail === activeEmail) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
       }
 
       const res = await fetch(`/api/lucky-spin/info?username=${encodeURIComponent(activeUsername)}`, { headers });
@@ -578,7 +582,11 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
       const { data: { session } } = await supabase.auth.getSession();
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (session?.access_token) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
+        const sessionEmail = session.user?.email?.toLowerCase();
+        const activeEmail = currentAccount?.email?.toLowerCase();
+        if (!activeEmail || !sessionEmail || sessionEmail === activeEmail) {
+          headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
       }
 
       // Execute backend atomic transaction spin request

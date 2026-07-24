@@ -750,6 +750,9 @@ export default function App() {
               state: latestState,
               settings: {
                 ...acc.settings,
+                freeSpinBalance: latestState.freeSpinBalance,
+                bonusSpinBalance: latestState.bonusSpinBalance,
+                rewardSpinWallet: latestState.bonusSpinBalance,
                 language: language,
                 spinTickets,
                 spinCount,
@@ -788,6 +791,9 @@ export default function App() {
                 state: state,
                 settings: {
                   ...acc.settings,
+                  freeSpinBalance: state.freeSpinBalance,
+                  bonusSpinBalance: state.bonusSpinBalance,
+                  rewardSpinWallet: state.bonusSpinBalance,
                   language: language,
                   spinTickets,
                   spinCount,

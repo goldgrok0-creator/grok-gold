@@ -559,11 +559,12 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
       const freeSpinRow = userSpinRows.find((sb: any) => sb.type === 'free');
       const bonusSpinRow = userSpinRows.find((sb: any) => sb.type === 'bonus');
 
-      const rawFreeSpin = freeSpinRow
-        ? Number(freeSpinRow.amount)
-        : (user.free_spin_balance !== undefined && user.free_spin_balance !== null
-            ? Number(user.free_spin_balance)
-            : (user.settings?.freeSpinBalance ?? 1000000));
+      const freeRowVal = (freeSpinRow && freeSpinRow.amount !== undefined && freeSpinRow.amount !== null) ? Number(freeSpinRow.amount) : undefined;
+      const userColVal = (user.free_spin_balance !== undefined && user.free_spin_balance !== null) ? Number(user.free_spin_balance) : undefined;
+      const userSettingsVal = (user.settings?.freeSpinBalance !== undefined && user.settings?.freeSpinBalance !== null) ? Number(user.settings.freeSpinBalance) : undefined;
+
+      const validFreeSpins = [freeRowVal, userColVal, userSettingsVal].filter((v): v is number => typeof v === 'number' && !isNaN(v) && v >= 0);
+      const rawFreeSpin = validFreeSpins.length > 0 ? Math.min(...validFreeSpins) : 1000000;
 
       const rawBonusSpin = bonusSpinRow
         ? Number(bonusSpinRow.amount)
@@ -596,7 +597,7 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
         },
         state: {
           mainBalance: Number(user.main_balance) || 0,
-          freeSpinBalance: Math.max(0, Math.min(rawFreeSpin, 1000000 - totalWonFromHistory)),
+          freeSpinBalance: Math.max(0, rawFreeSpin),
           bonusSpinBalance: rawBonusSpin,
           activeContracts: Number(user.active_contracts) || 0,
           totalEarned: dynTotalEarned,
@@ -881,9 +882,28 @@ export async function updateProfileImageInSupabase(username: string, imageUrl: s
 // 5. Update settings in Supabase
 export async function updateUserSettingsInSupabase(username: string, settings: any): Promise<boolean> {
   try {
+    let existingSettings: any = {};
+    try {
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('settings')
+        .ilike('username', username)
+        .maybeSingle();
+      if (existingUser?.settings) {
+        existingSettings = existingUser.settings;
+      }
+    } catch (e) {
+      console.warn('Could not fetch existing settings in updateUserSettingsInSupabase:', e);
+    }
+
+    const mergedSettings = {
+      ...existingSettings,
+      ...(settings || {})
+    };
+
     const { error } = await supabase
       .from('users')
-      .update({ settings })
+      .update({ settings: mergedSettings })
       .ilike('username', username);
 
     if (error) {
@@ -929,9 +949,6 @@ export async function saveTelegramChatIdToSupabase(
 // 6. Update general appState in Supabase (For users & admin profile)
 export async function saveAccountToSupabase(account: UserAccount): Promise<boolean> {
   try {
-    const freeSpinBal = account.state.freeSpinBalance ?? 1000000;
-    const bonusSpinBal = account.state.bonusSpinBalance ?? 0;
-
     // Fetch existing settings from DB to prevent accidental overwrite of server-managed settings like luckySpinHistory or lastSpinResetAt
     let existingSettings: any = {};
     try {
@@ -965,8 +982,17 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
       historyBonusTotal
     );
 
-    const rawFreeSpinBal = account.state.freeSpinBalance ?? existingSettings.freeSpinBalance ?? 1000000;
-    const mergedFreeSpinBal = Math.max(0, Math.min(rawFreeSpinBal, 1000000 - historyBonusTotal));
+    const accountFreeSpin = account.state.freeSpinBalance;
+    const accountSettingsFreeSpin = account.settings?.freeSpinBalance;
+    const dbFreeSpin = existingSettings.freeSpinBalance;
+
+    const validFreeSpinInputs = [
+      accountFreeSpin,
+      accountSettingsFreeSpin,
+      dbFreeSpin
+    ].filter((v): v is number => typeof v === 'number' && !isNaN(v) && v >= 0);
+
+    const mergedFreeSpinBal = validFreeSpinInputs.length > 0 ? Math.min(...validFreeSpinInputs) : 1000000;
 
     const mergedLastReset = account.settings?.lastSpinResetAt || existingSettings.lastSpinResetAt;
 

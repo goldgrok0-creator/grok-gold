@@ -380,6 +380,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               state: latestState,
               settings: {
                 ...acc.settings,
+                freeSpinBalance: latestState.freeSpinBalance,
+                bonusSpinBalance: latestState.bonusSpinBalance,
+                rewardSpinWallet: latestState.bonusSpinBalance,
                 language: language,
               }
             };
@@ -408,6 +411,9 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 state: state,
                 settings: {
                   ...acc.settings,
+                  freeSpinBalance: state.freeSpinBalance,
+                  bonusSpinBalance: state.bonusSpinBalance,
+                  rewardSpinWallet: state.bonusSpinBalance,
                   language: language,
                 }
               };
