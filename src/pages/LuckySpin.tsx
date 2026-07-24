@@ -4,7 +4,7 @@ import { ChevronLeft, RefreshCw, AlertCircle, Sparkles, Trophy, X, Coins, CheckC
 import confetti from 'canvas-confetti';
 import { useAppState, SPIN_ITEMS } from '../AppContext';
 import { Transaction } from '../types';
-import { supabase } from '../supabase';
+import { supabase, registerUserInSupabase } from '../supabase';
 
 // Web Audio & MP3 Sound Synthesizer/Player for Lucky Spin
 class SpinAudioFX {
@@ -588,13 +588,39 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
       }
 
       // Execute backend atomic transaction spin request
-      const response = await fetch('/api/lucky-spin/spin', {
+      let response = await fetch('/api/lucky-spin/spin', {
         method: 'POST',
         headers,
         body: JSON.stringify({ username: activeUsername })
       });
 
-      const data = await response.json();
+      let data = await response.json().catch(() => null);
+
+      if (!data || !data.success) {
+        if (!data || data.error?.includes('tidak ditemukan') || data.error?.includes('not found') || data.error?.includes('Session')) {
+          if (currentAccount) {
+            await registerUserInSupabase(currentAccount).catch(() => {});
+            response = await fetch('/api/lucky-spin/spin', {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({ username: activeUsername })
+            });
+            if (response.ok) {
+              const retryData = await response.json().catch(() => null);
+              if (retryData) data = retryData;
+            }
+          }
+        }
+      }
+
+      if (!data) {
+        setIsSpinning(false);
+        triggerModal(
+          language === 'id' ? '❌ GAGAL SPIN\n\nTerjadi kesalahan koneksi server.' : '❌ SPIN FAILED\n\nServer connection error.',
+          'danger'
+        );
+        return;
+      }
 
       if (data.todaySpins !== undefined) {
         setTodaySpins(data.todaySpins);

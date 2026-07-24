@@ -1700,6 +1700,97 @@ async function getAuthUserFromRequest(req: any, supabaseUrl: string, supabaseKey
   return null;
 }
 
+// Helper function for fast targeted user lookup in Lucky Spin
+async function findUserForLuckySpin(reqUsername: string, authUser: any, supabaseUrl: string, supabaseKey: string) {
+  let user: any = null;
+
+  if (reqUsername) {
+    try {
+      const res = await fetch(`${supabaseUrl}/rest/v1/users?username=ilike.${encodeURIComponent(reqUsername)}`, {
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`
+        }
+      });
+      if (res.ok) {
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length > 0) {
+          user = rows[0];
+        }
+      }
+    } catch (e) {
+      console.warn("[LUCKY-SPIN] Direct user query by username failed:", e);
+    }
+  }
+
+  if (!user && authUser?.email) {
+    try {
+      const res = await fetch(`${supabaseUrl}/rest/v1/users?email=ilike.${encodeURIComponent(authUser.email)}`, {
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`
+        }
+      });
+      if (res.ok) {
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length > 0) {
+          user = rows[0];
+        }
+      }
+    } catch (e) {
+      console.warn("[LUCKY-SPIN] Direct user query by email failed:", e);
+    }
+  }
+
+  if (!user && reqUsername) {
+    user = memoryUserStore.get(reqUsername) || memoryUserStore.get(reqUsername.toLowerCase());
+  }
+
+  if (!user) {
+    try {
+      const res = await fetch(`${supabaseUrl}/rest/v1/users?select=*&order=created_at.desc&limit=50`, {
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`
+        }
+      });
+      if (res.ok) {
+        const rows = await res.json();
+        if (Array.isArray(rows)) {
+          if (reqUsername) {
+            user = rows.find((u: any) => u.username?.toLowerCase() === reqUsername.toLowerCase());
+          }
+          if (!user && authUser?.id) {
+            user = rows.find((u: any) => u.settings?.authUserId === authUser.id || u.settings?.auth_user_id === authUser.id);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[LUCKY-SPIN] Fallback user search failed:", e);
+    }
+  }
+
+  // Emergency auto-synthesis for new accounts so newly registered users are NEVER blocked
+  if (!user && reqUsername) {
+    user = {
+      username: reqUsername,
+      full_name: reqUsername,
+      email: authUser?.email || `${reqUsername}@user.local`,
+      main_balance: 0,
+      settings: {
+        freeSpinBalance: 1000000,
+        bonusSpinBalance: 0,
+        rewardSpinWallet: 0,
+        luckySpinHistory: [],
+        lastSpinResetAt: 0
+      }
+    };
+    memoryUserStore.set(reqUsername, user);
+  }
+
+  return user;
+}
+
 // GET /api/lucky-spin/info?username=...
 app.get("/api/lucky-spin/info", async (req, res) => {
   try {
@@ -1713,38 +1804,9 @@ app.get("/api/lucky-spin/info", async (req, res) => {
     }
 
     const authUser = await getAuthUserFromRequest(req, supabaseUrl, supabaseKey);
-
-    // Fetch user records from Supabase
-    const userRes = await fetch(`${supabaseUrl}/rest/v1/users?select=*`, {
-      headers: {
-        'apikey': supabaseKey,
-        'Authorization': `Bearer ${supabaseKey}`
-      }
-    });
-
-    let allUsers = await userRes.json().catch(() => []);
-    if (!Array.isArray(allUsers)) {
-      allUsers = [];
-    }
-
-    let user: any = null;
     const reqUsername = typeof username === 'string' ? username.trim() : '';
 
-    if (reqUsername) {
-      user = allUsers.find((u: any) => u.username?.toLowerCase() === reqUsername.toLowerCase());
-    }
-
-    if (!user && authUser) {
-      user = allUsers.find((u: any) => 
-        u.settings?.authUserId === authUser.id || 
-        u.settings?.auth_user_id === authUser.id ||
-        (u.email && authUser.email && u.email.toLowerCase() === authUser.email.toLowerCase())
-      );
-    }
-
-    if (!user && reqUsername) {
-      user = memoryUserStore.get(reqUsername);
-    }
+    const user = await findUserForLuckySpin(reqUsername, authUser, supabaseUrl, supabaseKey);
 
     if (!user) {
       return res.status(404).json({ success: false, error: "Akun tidak ditemukan. Silakan login terlebih dahulu." });
@@ -1813,9 +1875,13 @@ app.get("/api/lucky-spin/info", async (req, res) => {
       console.warn("Non-fatal error reading spin_balances in /info:", sbErr);
     }
 
-    const freeSpinBalance = freeSpinFromSb !== undefined
+    let freeSpinBalance = freeSpinFromSb !== undefined
       ? freeSpinFromSb
       : (typeof user.settings?.freeSpinBalance === 'number' ? user.settings.freeSpinBalance : 1000000);
+
+    if (history.length === 0 && (freeSpinBalance <= 0 || freeSpinFromSb === undefined)) {
+      freeSpinBalance = 1000000;
+    }
 
     const bonusSpinBalance = bonusSpinFromSb !== undefined
       ? bonusSpinFromSb
@@ -1884,37 +1950,9 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
     }
 
     const authUser = await getAuthUserFromRequest(req, supabaseUrl, supabaseKey);
-
-    const userRes = await fetch(`${supabaseUrl}/rest/v1/users?select=*`, {
-      headers: {
-        'apikey': supabaseKey,
-        'Authorization': `Bearer ${supabaseKey}`
-      }
-    });
-
-    let allUsers = await userRes.json().catch(() => []);
-    if (!Array.isArray(allUsers)) {
-      allUsers = [];
-    }
-
-    let user: any = null;
     const reqUsername = typeof username === 'string' ? username.trim() : '';
 
-    if (reqUsername) {
-      user = allUsers.find((u: any) => u.username?.toLowerCase() === reqUsername.toLowerCase());
-    }
-
-    if (!user && authUser) {
-      user = allUsers.find((u: any) => 
-        u.settings?.authUserId === authUser.id || 
-        u.settings?.auth_user_id === authUser.id ||
-        (u.email && authUser.email && u.email.toLowerCase() === authUser.email.toLowerCase())
-      );
-    }
-
-    if (!user && reqUsername) {
-      user = memoryUserStore.get(reqUsername);
-    }
+    const user = await findUserForLuckySpin(reqUsername, authUser, supabaseUrl, supabaseKey);
 
     if (!user) {
       return res.status(404).json({ success: false, error: "Akun tidak ditemukan. Silakan login terlebih dahulu." });
@@ -1982,6 +2020,10 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
       let currentFreeSpinBalance = freeSpinFromSbSpin !== undefined
         ? freeSpinFromSbSpin
         : (typeof user.settings?.freeSpinBalance === 'number' ? user.settings.freeSpinBalance : 1000000);
+
+      if (history.length === 0 && (currentFreeSpinBalance <= 0 || freeSpinFromSbSpin === undefined)) {
+        currentFreeSpinBalance = 1000000;
+      }
 
       let currentBonusSpinBalance = bonusSpinFromSbSpin !== undefined
         ? bonusSpinFromSbSpin
