@@ -45,7 +45,7 @@ interface MemberDashboardProps {
   setAccounts: React.Dispatch<React.SetStateAction<UserAccount[]>>;
 }
 
-export default function MemberDashboard({
+const MemberDashboard = React.memo(function MemberDashboard({
   currentAccount,
   setCurrentAccount,
   onLogout,
@@ -1483,4 +1483,6 @@ export default function MemberDashboard({
 
     </div>
   );
-}
+});
+
+export default MemberDashboard;
