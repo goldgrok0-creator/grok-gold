@@ -151,7 +151,7 @@ interface LeaderboardProps {
   setCurrentTab: (tab: string) => void;
 }
 
-const Leaderboard = React.memo(function Leaderboard({
+export default function Leaderboard({
   accounts,
   state,
   currentAccount,
@@ -859,6 +859,4 @@ const Leaderboard = React.memo(function Leaderboard({
       )}
     </div>
   );
-});
-
-export default Leaderboard;
+}

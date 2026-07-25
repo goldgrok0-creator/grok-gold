@@ -138,7 +138,7 @@ function formatRelativeTime(timestamp: number, language: 'id' | 'en'): string {
   }
 }
 
-const GoldMarketChart = React.memo(function GoldMarketChart({ language }: GoldMarketChartProps) {
+export default function GoldMarketChart({ language }: GoldMarketChartProps) {
   // Starting gold spot price in IDR per gram
   const [goldPrice, setGoldPrice] = useState(1485600);
   const [priceHistory, setPriceHistory] = useState<number[]>([
@@ -544,6 +544,4 @@ const GoldMarketChart = React.memo(function GoldMarketChart({ language }: GoldMa
       </div>
     </div>
   );
-});
-
-export default GoldMarketChart;
+}

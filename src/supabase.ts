@@ -402,16 +402,6 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
     let transactionsQuery = supabase.from('transactions').select('*');
     let spinBalancesQuery = supabase.from('spin_balances').select('*');
 
-    if (targetUsername) {
-      const uLower = targetUsername.toLowerCase();
-      usersQuery = usersQuery.ilike('username', uLower);
-      depositsQuery = depositsQuery.ilike('username', uLower);
-      withdrawalsQuery = withdrawalsQuery.ilike('username', uLower);
-      contractsQuery = contractsQuery.ilike('username', uLower);
-      transactionsQuery = transactionsQuery.ilike('username', uLower);
-      spinBalancesQuery = spinBalancesQuery.ilike('username', uLower);
-    }
-
     const [usersRes, depositsRes, withdrawalsRes, contractsRes, transactionsRes, spinBalancesRes] = await Promise.all([
       usersQuery,
       depositsQuery,
@@ -422,20 +412,20 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
     ]);
 
     if (usersRes.error) {
-      console.warn('Supabase usersQuery note:', usersRes.error?.message || usersRes.error);
+      console.error('Supabase usersQuery error:', usersRes.error);
       return null;
     }
     if (depositsRes.error) {
-      console.warn('Supabase depositsQuery note:', depositsRes.error?.message || depositsRes.error);
+      console.error('Supabase depositsQuery error:', depositsRes.error);
     }
     if (withdrawalsRes.error) {
-      console.warn('Supabase withdrawalsQuery note:', withdrawalsRes.error?.message || withdrawalsRes.error);
+      console.error('Supabase withdrawalsQuery error:', withdrawalsRes.error);
     }
     if (contractsRes.error) {
-      console.warn('Supabase contractsQuery note:', contractsRes.error?.message || contractsRes.error);
+      console.error('Supabase contractsQuery error:', contractsRes.error);
     }
     if (transactionsRes.error) {
-      console.warn('Supabase transactionsQuery note:', transactionsRes.error?.message || transactionsRes.error);
+      console.error('Supabase transactionsQuery error:', transactionsRes.error);
     }
 
     const users = usersRes.data || [];
