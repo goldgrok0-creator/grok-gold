@@ -509,44 +509,51 @@ const WalletPage: React.FC = () => {
             </div>
 
             <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
-              {state.transactions.length === 0 ? (
-                <div className="text-center py-8 text-slate-500 font-bold text-xs space-y-1">
-                  <div>{t.emptyTx}</div>
-                </div>
-              ) : (
-                state.transactions.map((tx, idx) => (
-                  <div key={`${tx.id}-${idx}`} className="flex justify-between items-center py-2.5 border-b border-white/5 last:border-none">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${
-                        tx.type === 'deposit'
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : tx.type === 'withdraw'
-                          ? 'bg-rose-500/10 text-rose-400'
-                          : 'bg-gold-primary/10 text-gold-primary'
-                      }`}>
-                        {tx.type === 'deposit' ? <ArrowDown className="w-4 h-4" /> : tx.type === 'withdraw' ? <ArrowUp className="w-4 h-4" /> : <Gift className="w-4 h-4" />}
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-white block leading-tight">{tx.description}</span>
-                        <span className="text-[9px] text-slate-400 block mt-0.5 font-mono">
-                          {new Date(tx.date).toLocaleDateString(language === 'id' ? 'id-ID' : 'en-US', {
-                            day: '2-digit',
-                            month: 'short',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </span>
-                      </div>
-                    </div>
-
-                    <span className={`text-xs font-black font-mono ${
-                      tx.type === 'deposit' || tx.type === 'reward' ? 'text-emerald-400' : 'text-rose-400'
-                    }`}>
-                      {tx.type === 'deposit' || tx.type === 'reward' ? '+' : '-'} Rp {tx.amount.toLocaleString('id-ID')}
-                    </span>
+              {(() => {
+                const walletTxs = (state.transactions || []).filter(tx => 
+                  tx.type !== 'lucky_spin_reward' &&
+                  tx.type !== 'spin_reward' &&
+                  !(tx.description && tx.description.toLowerCase().includes('hadiah lucky spin'))
+                );
+                return walletTxs.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500 font-bold text-xs space-y-1">
+                    <div>{t.emptyTx}</div>
                   </div>
-                ))
-              )}
+                ) : (
+                  walletTxs.map((tx, idx) => (
+                    <div key={`${tx.id}-${idx}`} className="flex justify-between items-center py-2.5 border-b border-white/5 last:border-none">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${
+                          tx.type === 'deposit'
+                            ? 'bg-emerald-500/10 text-emerald-400'
+                            : tx.type === 'withdraw'
+                            ? 'bg-rose-500/10 text-rose-400'
+                            : 'bg-gold-primary/10 text-gold-primary'
+                        }`}>
+                          {tx.type === 'deposit' ? <ArrowDown className="w-4 h-4" /> : tx.type === 'withdraw' ? <ArrowUp className="w-4 h-4" /> : <Gift className="w-4 h-4" />}
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-white block leading-tight">{tx.description}</span>
+                          <span className="text-[9px] text-slate-400 block mt-0.5 font-mono">
+                            {new Date(tx.date).toLocaleDateString(language === 'id' ? 'id-ID' : 'en-US', {
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                      </div>
+
+                      <span className={`text-xs font-black font-mono ${
+                        tx.type === 'withdraw' || tx.type === 'purchase' ? 'text-rose-400' : 'text-emerald-400'
+                      }`}>
+                        {tx.type === 'withdraw' || tx.type === 'purchase' ? '-' : '+'} Rp {tx.amount.toLocaleString('id-ID')}
+                      </span>
+                    </div>
+                  ))
+                );
+              })()}
             </div>
           </div>
         </motion.div>
@@ -1446,7 +1453,7 @@ const WalletPage: React.FC = () => {
                 <div>
                   <label className="text-gold-primary text-[10px] block mb-1.5 uppercase flex justify-between font-sans">
                     <span>Nominal Penarikan (Rp)</span>
-                    <span className="text-slate-400 font-semibold text-[9px]">Saldo: Rp {state.mainBalance.toLocaleString('id-ID')}</span>
+                    <span className="text-slate-400 font-semibold text-[9px]">Saldo Reward: Rp {(state.rewardBalance ?? 0).toLocaleString('id-ID')}</span>
                   </label>
                   <div className="relative">
                     <span className="absolute left-4 top-3.5 text-slate-400 text-sm font-black font-sans">Rp</span>
@@ -1526,7 +1533,7 @@ const WalletPage: React.FC = () => {
                 <div>
                   <label className="text-gold-primary text-[10px] block mb-1.5 uppercase flex justify-between font-sans">
                     <span>Nominal Transfer (Rp)</span>
-                    <span className="text-slate-400 font-semibold text-[9px]">Saldo: Rp {state.mainBalance.toLocaleString('id-ID')}</span>
+                    <span className="text-slate-400 font-semibold text-[9px]">Saldo Reward: Rp {(state.rewardBalance ?? 0).toLocaleString('id-ID')}</span>
                   </label>
                   <div className="relative">
                     <span className="absolute left-4 top-3.5 text-slate-400 text-sm font-black font-sans">Rp</span>

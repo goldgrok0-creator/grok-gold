@@ -175,8 +175,9 @@ export const AuthPage: React.FC = () => {
 
               {/* Title & Branding info with luxury gradient text */}
               <div className="text-center space-y-0.5 mb-5.5">
-                <h1 className="text-xl font-extrabold tracking-[0.25em] bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-200 bg-clip-text text-transparent font-orbitron uppercase text-center drop-shadow-[0_2px_10px_rgba(251,191,36,0.2)]">
-                  GROCKGOLD
+                <h1 className="text-xl font-extrabold tracking-[0.25em] font-orbitron uppercase text-center drop-shadow-[0_2px_10px_rgba(255,215,0,0.3)]">
+                  <span className="text-[#FFFFFF]">GROCK</span>
+                  <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span>
                 </h1>
                 <p className="text-[9px] text-yellow-500/70 font-mono tracking-[0.3em] uppercase text-center mt-0.5">
                   PREMIUM PORTAL

@@ -603,8 +603,9 @@ export default function MemberDashboard({
                 </div>
               </div>
               <div>
-                <span className="text-sm font-black tracking-widest text-white uppercase font-orbitron">
-                  GROCK<span className="text-yellow-500">GOLD</span>
+                <span className="text-sm font-black tracking-widest uppercase font-orbitron">
+                  <span className="text-[#FFFFFF]">GROCK</span>
+                  <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span>
                 </span>
                 <span className="block text-[6.5px] text-slate-500 font-extrabold tracking-widest uppercase font-sans">MEMBER PORTAL</span>
               </div>

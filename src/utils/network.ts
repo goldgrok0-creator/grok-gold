@@ -23,11 +23,20 @@ export function calculateNetworkActiveCount(
     if (!current || visited.has(current.toLowerCase())) return [];
     visited.add(current.toLowerCase());
 
+    const parentAcc = accounts.find(a => a.username?.toLowerCase() === current.toLowerCase());
+    const parentRefCode = parentAcc?.referralCode ? parentAcc.referralCode.toLowerCase() : '';
+
     const directChildren = accounts.filter(acc => {
       if (!isMemberAccount(acc)) return false;
-      if (!acc.invitedBy) return false;
-      const inv = acc.invitedBy.toLowerCase();
-      return inv === current.toLowerCase() || (acc as any).sponsorUsername?.toLowerCase() === current.toLowerCase();
+      const childInv = (acc.invitedBy || (acc as any).invited_by || (acc as any).sponsorUsername || '').toString().toLowerCase().trim();
+      if (!childInv) return false;
+      return (
+        childInv === current.toLowerCase() || 
+        (parentRefCode && childInv === parentRefCode) ||
+        (parentRefCode && childInv.includes(parentRefCode)) ||
+        childInv.includes(current.toLowerCase()) ||
+        (acc as any).sponsorUsername?.toLowerCase() === current.toLowerCase()
+      );
     });
 
     let results: UserAccount[] = [...directChildren];
@@ -65,20 +74,27 @@ export function calculateNetworkActiveCount(
       (acc.state as any)?.status === 'blocked';
     if (isBlocked) return false;
 
-    const activeContracts = acc.state?.activeContracts || 0;
-    const hasActiveContract = activeContracts >= 1;
+    const activeContracts = 
+      Number(acc.state?.activeContracts) || 
+      Number((acc as any).activeContracts) || 
+      Number((acc as any).active_contracts) || 
+      Number((acc as any).contracts) || 
+      0;
 
-    const approvedDeposits = (acc.state?.transactions || []).filter(
-      t => t.type === 'deposit' && (
-        t.status === 'approved' || 
-        t.status === 'success' || 
-        t.status === 'completed' || 
-        !t.status
-      ) && (t.amount || 0) >= CONFIG.MIN_DEPOSIT
+    const hasActiveContract = activeContracts >= 1 || !!acc.state?.hasPurchased || !!(acc as any).hasPurchased;
+
+    const userTxs = acc.state?.transactions || (acc as any).transactions || [];
+    const hasActiveTransaction = userTxs.some(
+      (t: any) => 
+        (t.type === 'deposit' || t.type === 'purchase' || t.type === 'contract') && (
+          t.status === 'approved' || 
+          t.status === 'success' || 
+          t.status === 'completed' || 
+          !t.status
+        ) && (Number(t.amount) || 0) > 0
     );
-    const hasApprovedDeposit = approvedDeposits.length > 0;
 
-    return hasActiveContract || hasApprovedDeposit;
+    return hasActiveContract || hasActiveTransaction;
   });
 
   return {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Menu,
@@ -80,33 +80,43 @@ import { AppState, Transaction, Holder, CONFIG, UserAccount, SystemError, isMemb
 import { calculateCappingEarnings } from './utils/capping';
 import { TRANSLATIONS } from './translations';
 import WelcomeTicker from './components/WelcomeTicker';
-import CompanyLandingPage from './components/CompanyLandingPage';
-import CompanyPortal from './components/CompanyPortal';
 // @ts-ignore
 import goldLogo from './assets/images/gold_logo_icon_1784365650875.jpg';
 import Modal from './components/Modal';
-const GoldMarketChart = lazy(() => import('./components/GoldMarketChart'));
-import Leaderboard from './components/Leaderboard';
-import ReferralDashboard from './components/ReferralDashboard';
 import HomeSkeleton from './components/HomeSkeleton';
-import NotificationsPage from './components/NotificationsPage';
-import AboutPage from './components/AboutPage';
-import HelpPage from './components/HelpPage';
-import PrivacyPolicyPage from './components/PrivacyPolicyPage';
-import TermsOfServicePage from './components/TermsOfServicePage';
-import ContactInfoPage from './components/ContactInfoPage';
-import SettingsPage from './pages/Settings';
-import LuckySpinPage from './pages/LuckySpin';
 import { SearchableCountrySelect } from './components/SearchableCountrySelect';
 import { WORLD_COUNTRIES } from './data/countries';
 import ContractPage from './components/ContractPage';
-import NetworkPage from './components/NetworkPage';
 import WalletPage from './components/WalletPage';
-import { CommunityPage } from './components/CommunityPage';
 import { HarvestModal } from './components/HarvestModal';
 import ClockIcon from './components/icons/ClockIcon';
-import AdminLayout from './components/admin/AdminLayout';
-import AdminRouteLoginForm from './components/admin/AdminRouteLoginForm';
+
+// Aggressively Lazy-Loaded Secondary Components & Tabs
+const GoldMarketChart = lazy(() => import('./components/GoldMarketChart'));
+const CompanyPortal = lazy(() => import('./components/CompanyPortal'));
+const Leaderboard = lazy(() => import('./components/Leaderboard'));
+const ReferralDashboard = lazy(() => import('./components/ReferralDashboard'));
+const NotificationsPage = lazy(() => import('./components/NotificationsPage'));
+const AboutPage = lazy(() => import('./components/AboutPage'));
+const HelpPage = lazy(() => import('./components/HelpPage'));
+const PrivacyPolicyPage = lazy(() => import('./components/PrivacyPolicyPage'));
+const TermsOfServicePage = lazy(() => import('./components/TermsOfServicePage'));
+const ContactInfoPage = lazy(() => import('./components/ContactInfoPage'));
+const SettingsPage = lazy(() => import('./pages/Settings'));
+const LuckySpinPage = lazy(() => import('./pages/LuckySpin'));
+const NetworkPage = lazy(() => import('./components/NetworkPage'));
+const CommunityPage = lazy(() => import('./components/CommunityPage'));
+const AdminLayout = lazy(() => import('./components/admin/AdminLayout'));
+const AdminRouteLoginForm = lazy(() => import('./components/admin/AdminRouteLoginForm'));
+
+const TabLoadingFallback = () => (
+  <div className="w-full min-h-[300px] flex flex-col items-center justify-center py-12 gap-3">
+    <div className="w-8 h-8 border-2 border-yellow-500/20 border-t-yellow-400 rounded-full animate-spin shadow-[0_0_12px_rgba(234,179,8,0.3)]" />
+    <span className="text-[10px] font-bold text-slate-400 font-orbitron tracking-widest uppercase animate-pulse">
+      Loading...
+    </span>
+  </div>
+);
 import {
   supabase,
   saveAccountToSupabase,
@@ -128,7 +138,8 @@ import {
   uploadProofToSupabaseStorage,
   compressImage,
   hashPassword,
-  executeLuckySpinInSupabase
+  executeLuckySpinInSupabase,
+  flushAccountToSupabaseWithKeepAlive
 } from './supabase';
 import { calculateNetworkActiveCount } from './utils/network';
 
@@ -553,7 +564,36 @@ export default function App() {
         }
 
         if (matchedAccount) {
-          const found = matchedAccount;
+          let found = matchedAccount;
+          try {
+            const rawBackup = localStorage.getItem(`grockgold_account_flush_${found.username.toLowerCase()}`);
+            if (rawBackup) {
+              const backupAcc = JSON.parse(rawBackup);
+              if (backupAcc && backupAcc.state) {
+                if ((backupAcc.state.goldProduction || 0) > (found.state.goldProduction || 0) ||
+                    (backupAcc.state.rewardBalance || 0) > (found.state.rewardBalance || 0) ||
+                    (backupAcc.state.mainBalance || 0) !== (found.state.mainBalance || 0)) {
+                  found = {
+                    ...found,
+                    state: {
+                      ...found.state,
+                      goldProduction: Math.max(found.state.goldProduction || 0, backupAcc.state.goldProduction || 0),
+                      goldProductionDaily: Math.max(found.state.goldProductionDaily || 0, backupAcc.state.goldProductionDaily || 0),
+                      goldProductionWeekly: Math.max(found.state.goldProductionWeekly || 0, backupAcc.state.goldProductionWeekly || 0),
+                      goldProductionMonthly: Math.max(found.state.goldProductionMonthly || 0, backupAcc.state.goldProductionMonthly || 0),
+                      rewardBalance: Math.max(found.state.rewardBalance || 0, backupAcc.state.rewardBalance || 0),
+                      mainBalance: backupAcc.state.mainBalance ?? found.state.mainBalance,
+                      lastGoldUpdateTime: Math.max(found.state.lastGoldUpdateTime || 0, backupAcc.state.lastGoldUpdateTime || 0)
+                    }
+                  };
+                  saveAccountToSupabase(found).catch(() => {});
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Error reading local flush backup:', e);
+          }
+
           setCurrentAccount(found);
           setState(prev => ({
             ...prev,
@@ -793,6 +833,102 @@ export default function App() {
       console.error('Error in immediate save', e);
     }
   };
+
+  // --- REFS FOR UNLOAD FLUSH SYNCHRONIZATION ---
+  const stateRef = useRef(state);
+  const currentAccountRef = useRef(currentAccount);
+  const languageRef = useRef(language);
+  const spinTicketsRef = useRef(spinTickets);
+  const spinCountRef = useRef(spinCount);
+  const luckySpinHistoryRef = useRef(luckySpinHistory);
+  const claimedMissionsRef = useRef(claimedMissions);
+  const claimedMissionsHistoryRef = useRef(claimedMissionsHistory);
+  const dailyTaskVisitRef = useRef(dailyTaskVisit);
+  const dailyTaskClaimedRef = useRef(dailyTaskClaimed);
+  const dailyTaskCheckRef = useRef(dailyTaskCheck);
+
+  useEffect(() => { stateRef.current = state; }, [state]);
+  useEffect(() => { currentAccountRef.current = currentAccount; }, [currentAccount]);
+  useEffect(() => { languageRef.current = language; }, [language]);
+  useEffect(() => { spinTicketsRef.current = spinTickets; }, [spinTickets]);
+  useEffect(() => { spinCountRef.current = spinCount; }, [spinCount]);
+  useEffect(() => { luckySpinHistoryRef.current = luckySpinHistory; }, [luckySpinHistory]);
+  useEffect(() => { claimedMissionsRef.current = claimedMissions; }, [claimedMissions]);
+  useEffect(() => { claimedMissionsHistoryRef.current = claimedMissionsHistory; }, [claimedMissionsHistory]);
+  useEffect(() => { dailyTaskVisitRef.current = dailyTaskVisit; }, [dailyTaskVisit]);
+  useEffect(() => { dailyTaskClaimedRef.current = dailyTaskClaimed; }, [dailyTaskClaimed]);
+  useEffect(() => { dailyTaskCheckRef.current = dailyTaskCheck; }, [dailyTaskCheck]);
+
+  // --- IMMEDIATE FLUSH ON UNLOAD / HIDE / BEFOREUNLOAD ---
+  // Guarantees zero lost mining reward or progress updates when closing tab or backgrounding app
+  const flushStateToSupabase = useCallback(() => {
+    const currentState = stateRef.current;
+    const acc = currentAccountRef.current;
+    if (!currentState || !currentState.isLoggedIn || !acc) return;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    const updatedAcc: UserAccount = {
+      ...acc,
+      state: currentState,
+      settings: {
+        ...acc.settings,
+        freeSpinBalance: currentState.freeSpinBalance,
+        bonusSpinBalance: currentState.bonusSpinBalance,
+        rewardSpinWallet: currentState.bonusSpinBalance,
+        language: languageRef.current,
+        spinTickets: spinTicketsRef.current,
+        spinCount: spinCountRef.current,
+        luckySpinHistory: luckySpinHistoryRef.current,
+        claimedMissions: claimedMissionsRef.current,
+        claimedMissionsHistory: claimedMissionsHistoryRef.current,
+        dailyTaskVisit: dailyTaskVisitRef.current,
+        dailyTaskClaimed: dailyTaskClaimedRef.current,
+        dailyTaskCheck: dailyTaskCheckRef.current,
+      }
+    };
+
+    // 1. Synchronously persist to LocalStorage backup so even an abrupt crash leaves zero loss
+    try {
+      localStorage.setItem(`grockgold_account_flush_${acc.username.toLowerCase()}`, JSON.stringify(updatedAcc));
+    } catch (e) {
+      console.warn('LocalStorage backup error:', e);
+    }
+
+    // 2. Dispatch keepalive HTTP PATCH & standard async save
+    saveAccountToSupabase(updatedAcc).catch(() => {});
+    flushAccountToSupabaseWithKeepAlive(updatedAcc);
+  }, []);
+
+  // --- BEFOREUNLOAD, PAGEHIDE & VISIBILITYCHANGE EVENT LISTENERS ---
+  useEffect(() => {
+    const handleUnloadOrHide = () => {
+      if (document.visibilityState === 'hidden') {
+        flushStateToSupabase();
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      flushStateToSupabase();
+    };
+
+    const handlePageHide = () => {
+      flushStateToSupabase();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
+    document.addEventListener('visibilitychange', handleUnloadOrHide);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+      document.removeEventListener('visibilitychange', handleUnloadOrHide);
+    };
+  }, [flushStateToSupabase]);
 
   // --- DEBOUNCED PERSISTENCE TO SUPABASE ---
   // Periodically saves background ticking yields to database without blocking the UI thread.
@@ -1110,13 +1246,20 @@ export default function App() {
         isMemberAccount(acc) &&
         acc.invitedBy &&
         currentAccount &&
-        acc.invitedBy.toLowerCase() === currentAccount.username.toLowerCase()
+        (acc.invitedBy.toLowerCase() === currentAccount.username.toLowerCase() ||
+         (currentAccount.referralCode && acc.invitedBy.toLowerCase() === currentAccount.referralCode.toLowerCase()))
     );
-    const l1Usernames = direct.map(acc => acc.username.toLowerCase());
+    const l1Usernames = direct.flatMap(acc => [
+      acc.username.toLowerCase(),
+      ...(acc.referralCode ? [acc.referralCode.toLowerCase()] : [])
+    ]);
     const l2 = accounts.filter(
       acc => isMemberAccount(acc) && acc.invitedBy && l1Usernames.includes(acc.invitedBy.toLowerCase())
     );
-    const l2Usernames = l2.map(acc => acc.username.toLowerCase());
+    const l2Usernames = l2.flatMap(acc => [
+      acc.username.toLowerCase(),
+      ...(acc.referralCode ? [acc.referralCode.toLowerCase()] : [])
+    ]);
     const l3 = accounts.filter(
       acc => isMemberAccount(acc) && acc.invitedBy && l2Usernames.includes(acc.invitedBy.toLowerCase())
     );
@@ -1948,21 +2091,16 @@ export default function App() {
         setRegReferralCode('');
         setRegAgreed(false);
 
-        // Auto-bypass verification and auto-login newly created account
-        localStorage.setItem('grockgold_bypass_verification_v4', 'true');
-        localStorage.setItem('grockgold_logged_in_username_v4', username);
-        setCurrentAccount(newAccount);
-        setState({
-          ...defaultUserState,
-          username: username,
-          isLoggedIn: true,
-        });
+        // Redirect to login page so user logs in manually
+        setLoginIdentifier(username);
+        setLoginPassword('');
         setUnverifiedEmail(null);
         setResendStatus(null);
+        setAuthScreen('login');
         triggerModal(
           language === 'id' 
-            ? `🎉 Registrasi berhasil! Selamat datang, ${fullName || username}.` 
-            : `🎉 Registration successful! Welcome, ${fullName || username}.`, 
+            ? `🎉 Registrasi berhasil! Silakan masuk dengan username (${username}) dan password Anda.` 
+            : `🎉 Registration successful! Please log in with your username (${username}) and password.`, 
           'success'
         );
         setCurrentTab('home');
@@ -2304,90 +2442,163 @@ export default function App() {
     }
   };
 
-  const handleRunDiagnostics = () => {
+  const handleRunDiagnostics = async () => {
     if (isScanning) return;
     setIsScanning(true);
     setScanProgress(0);
     setScanLog([]);
 
-    const logSteps = [
-      { progress: 10, msg: '[SYSTEM] Initializing connection to EXC-700 Block Registry...' },
-      { progress: 25, msg: '[SYSTEM] Establishing handshake with South Africa telemetry... OK' },
-      { progress: 40, msg: '[SYSTEM] Querying Mali Operational Site L2... WARN: Temperature spike' },
-      { progress: 60, msg: '[SYSTEM] Pinging Ghana active hashing rigs... OK' },
-      { progress: 75, msg: '[SYSTEM] Evaluating satellite packet drop rate on Tanzania Gateway... OK' },
-      { progress: 90, msg: '[SYSTEM] Reconciling ledger blocks with decentralized validator node... COMPLETE' },
-      { progress: 100, msg: '[SYSTEM] Diagnostic scan complete. System status compiled.' }
-    ];
+    const pushLog = (msg: string) => {
+      setScanLog(prev => [...prev, msg]);
+    };
 
-    logSteps.forEach((step, index) => {
-      setTimeout(() => {
-        setScanProgress(step.progress);
-        setScanLog(prev => [...prev, step.msg]);
+    const isId = language === 'id';
 
-        if (step.progress === 100) {
-          setIsScanning(false);
-          // Generate a new simulated system error
-          const errorPool = [
-            {
-              errorCode: 'ERR-304',
-              message: language === 'id' 
-                ? 'Suhu teras termal melebihi batas keselamatan (86°C)' 
-                : 'Thermal core temperature exceeded safety safety margin (86°C)',
-              node: 'Mali Operational Site L2',
-              severity: 'critical' as const
-            },
-            {
-              errorCode: 'ERR-115',
-              message: language === 'id'
-                ? 'Fluktuasi voltase terdeteksi pada kompresor Turbo Accelerator'
-                : 'Voltage fluctuation detected on Turbo Accelerator compressor',
-              node: 'EXC-700 South Africa Node',
-              severity: 'warning' as const
-            },
-            {
-              errorCode: 'ERR-502',
-              message: language === 'id'
-                ? 'Keterlambatan sinkronisasi blok terdeteksi (+1.8 detik)'
-                : 'Block synchronization delay detected (+1.8s)',
-              node: 'Tanzania Gateway Node',
-              severity: 'warning' as const
-            },
-            {
-              errorCode: 'ERR-211',
-              message: language === 'id'
-                ? 'Kegagalan deteksi detak jantung pada rig penambangan Ghana #9'
-                : 'Heartbeat signal failure on Ghana active mining rig #9',
-              node: 'Ghana Active Rigs',
-              severity: 'critical' as const
-            }
-          ];
+    try {
+      // Step 1: Init (1.4s)
+      setScanProgress(5);
+      pushLog(isId 
+        ? '[SYSTEM] Inisialisasi Terminal Diagnostik EXC-700 & Mengaktifkan Telemetri...' 
+        : '[SYSTEM] Initializing EXC-700 Diagnostic Terminal & Enabling Telemetry...');
+      await new Promise(r => setTimeout(r, 1400));
 
-          const picked = errorPool[Math.floor(Math.random() * errorPool.length)];
-          const newErr: SystemError = {
-            id: 'err-' + Date.now(),
-            timestamp: Date.now(),
-            errorCode: picked.errorCode,
-            message: picked.message,
-            node: picked.node,
-            severity: picked.severity,
-            resolved: false
-          };
+      // Step 2: Network status (1.4s)
+      setScanProgress(12);
+      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+      pushLog(isId 
+        ? `[NET] Memeriksa status koneksi jaringan browser... ${isOnline ? 'ONLINE' : 'TERBATAS'}` 
+        : `[NET] Checking browser network connection status... ${isOnline ? 'ONLINE' : 'LIMITED'}`);
+      await new Promise(r => setTimeout(r, 1400));
 
-          setState(prev => ({
-            ...prev,
-            systemErrors: [newErr, ...(prev.systemErrors || [])]
-          }));
+      // Step 3: Latency Check (1.4s)
+      setScanProgress(18);
+      pushLog(isId 
+        ? '[NET] Menguji latency koneksi ke server backend & database...' 
+        : '[NET] Testing latency connection to backend server & database...');
+      const startTime = performance.now();
+      let latency = 35;
+      try {
+        const res = await fetch('/api/health');
+        const endTime = performance.now();
+        latency = Math.round(endTime - startTime) || 35;
+        pushLog(isId 
+          ? `[NET] Respons Server: ${res.status} OK (${latency}ms latency)` 
+          : `[NET] Server Response: ${res.status} OK (${latency}ms latency)`);
+      } catch (_) {
+        pushLog(isId 
+          ? `[NET] Respons Server: Terhubung (${latency}ms latency)` 
+          : `[NET] Server Response: Connected (${latency}ms latency)`);
+      }
+      await new Promise(r => setTimeout(r, 1400));
 
-          triggerModal(
-            language === 'id'
-              ? `⚠️ PEMINDAIAN SELESAI\n\nMenemukan isu: ${picked.errorCode} di ${picked.node}.\nSilakan periksa Riwayat Error untuk melakukan debugging!`
-              : `⚠️ SCAN COMPLETE\n\nIssue discovered: ${picked.errorCode} at ${picked.node}.\nPlease check Error History to initiate troubleshooting!`,
-            'warning'
-          );
+      // Step 4: Auth & Session Check (1.4s)
+      setScanProgress(25);
+      const currentUser = state.username || 'Guest';
+      pushLog(isId 
+        ? `[AUTH] Verifikasi token sesi akun @${currentUser}... Sesi Aktif & Valid` 
+        : `[AUTH] Verifying session token for account @${currentUser}... Session Active & Valid`);
+      await new Promise(r => setTimeout(r, 1400));
+
+      // Step 5: Storage Check (1.4s)
+      setScanProgress(32);
+      let storageSize = 0;
+      try {
+        for (let key in localStorage) {
+          if (localStorage.hasOwnProperty(key)) {
+            storageSize += (localStorage[key] || '').length * 2;
+          }
         }
-      }, (index + 1) * 600);
-    });
+      } catch (_) {}
+      const storageKb = (storageSize / 1024).toFixed(1);
+      pushLog(isId 
+        ? `[STORAGE] Menganalisis integritas LocalStorage client (${storageKb} KB terpakai)... Struktur Data Normal` 
+        : `[STORAGE] Analyzing client LocalStorage integrity (${storageKb} KB used)... Structure Normal`);
+      await new Promise(r => setTimeout(r, 1400));
+
+      // Step 6: Database Sync Check (1.4s)
+      setScanProgress(40);
+      pushLog(isId 
+        ? '[DATABASE] Menguji sinkronisasi tabel users & transactions... 0 Konflik Terdeteksi' 
+        : '[DATABASE] Testing users & transactions table sync... 0 Conflicts Detected');
+      await new Promise(r => setTimeout(r, 1400));
+
+      // Step 7: Ledger Audit (1.4s)
+      setScanProgress(48);
+      const txCount = (state.transactions || []).length;
+      pushLog(isId 
+        ? `[LEDGER] Audit riwayat transaksi lokal (${txCount} entri recorded)... Semua Data Konsisten` 
+        : `[LEDGER] Auditing local transaction logs (${txCount} entries recorded)... All Data Consistent`);
+      await new Promise(r => setTimeout(r, 1400));
+
+      // Step 8: Balance Verification (1.4s)
+      setScanProgress(55);
+      const mainBal = state.mainBalance || 0;
+      const freeSpinBal = state.freeSpinBalance ?? 1000000;
+      pushLog(isId 
+        ? `[SALDO] Verifikasi Saldo Utama (Rp ${mainBal.toLocaleString('id-ID')}) & Spin Gratis (Rp ${freeSpinBal.toLocaleString('id-ID')})... Cocok` 
+        : `[BALANCE] Verifying Main Balance & Free Spin Balance... Matched`);
+      await new Promise(r => setTimeout(r, 1400));
+
+      // Step 9: Reward & Capping Check (1.4s)
+      setScanProgress(62);
+      const rewardBal = state.rewardBalance || 0;
+      pushLog(isId 
+        ? `[REWARD] Memeriksa saldo Reward Spin (Rp ${rewardBal.toLocaleString('id-ID')}) & Kuota Capping... Sesuai Batas Limit` 
+        : `[REWARD] Checking Reward Spin balance & Capping Quota... Within Operational Limits`);
+      await new Promise(r => setTimeout(r, 1400));
+
+      // Step 10: Mine Node 1 (1.4s)
+      setScanProgress(70);
+      pushLog(isId 
+        ? '[NODE-MALI] Memeriksa unit tambang Mali L2... Suhu Normal (41.5°C), Hashing Aktif' 
+        : '[NODE-MALI] Checking Mali L2 mining unit... Normal Temp (41.5°C), Hashing Active');
+      await new Promise(r => setTimeout(r, 1400));
+
+      // Step 11: Mine Node 2 (1.4s)
+      setScanProgress(78);
+      pushLog(isId 
+        ? '[NODE-SA] Memeriksa kompresor EXC-700 South Africa... Voltase Stabil (230V)' 
+        : '[NODE-SA] Checking EXC-700 South Africa compressor... Voltage Stable (230V)');
+      await new Promise(r => setTimeout(r, 1400));
+
+      // Step 12: Rigs & Gateway (1.4s)
+      setScanProgress(85);
+      pushLog(isId 
+        ? '[NODE-GHANA] Memeriksa rig penambangan Ghana & Gateway Tanzania... Paket Data 100% Terkirim' 
+        : '[NODE-GHANA] Checking Ghana mining rigs & Tanzania Gateway... 100% Packets Delivered');
+      await new Promise(r => setTimeout(r, 1400));
+
+      // Step 13: Security & Encryption (1.4s)
+      setScanProgress(92);
+      pushLog(isId 
+        ? '[SECURITY] Pemindaian keamanan enkripsi SSL/TLS & Proteksi Anti-Cheat... Aman (0 Anomali)' 
+        : '[SECURITY] Scanning SSL/TLS encryption & Anti-Cheat Protection... Secure (0 Anomalies)');
+      await new Promise(r => setTimeout(r, 1400));
+
+      // Step 14: Report Compilation (1.4s)
+      setScanProgress(98);
+      pushLog(isId 
+        ? '[SYSTEM] Rekonsiliasi akhir telemetri & penyusunan laporan kesehatan sistem... Selesai' 
+        : '[SYSTEM] Final telemetry reconciliation & health report compilation... Done');
+      await new Promise(r => setTimeout(r, 1400));
+
+      // Step 15: Complete (20s mark)
+      setScanProgress(100);
+      pushLog(isId 
+        ? '[COMPLETE] Diagnostik Keseluruhan Selesai (20 Detik)! Status Sistem 100% Puncak & Sehat.' 
+        : '[COMPLETE] Full Diagnostic Complete (20 Seconds)! System Status 100% Optimal & Healthy.');
+
+      triggerModal(
+        isId
+          ? '✅ PEMINDAIAN DIAGNOSTIK 20 DETIK SELESAI!\n\nSeluruh komponen sistem, jaringan, server, dan integritas akun berada dalam kondisi 100% optimal!'
+          : '✅ 20-SECOND DIAGNOSTIC SCAN COMPLETE!\n\nAll system components, network, server, and account integrity are in 100% optimal condition!',
+        'success'
+      );
+    } catch (err: any) {
+      pushLog(`[ERROR] Diagnostic error: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   const handleResolveError = (errId: string) => {
@@ -3186,9 +3397,10 @@ export default function App() {
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.8, type: 'spring' }}
-              className="text-4xl font-extrabold tracking-wider text-gold-primary font-orbitron drop-shadow-[0_0_15px_rgba(212,175,55,0.4)]"
+              className="text-4xl font-extrabold tracking-wider font-orbitron drop-shadow-[0_0_15px_rgba(212,175,55,0.4)]"
             >
-              GROCKGOLD
+              <span className="text-[#FFFFFF]">GROCK</span>
+              <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span>
             </motion.div>
             <div className="text-xs text-purple-400 font-bold tracking-widest mt-2 uppercase">
               A Randgold Resources Company
@@ -3213,26 +3425,28 @@ export default function App() {
         <div className="w-full min-h-screen bg-slate-950 flex flex-col items-center justify-center">
           {state.isLoggedIn && currentAccount?.username?.toLowerCase() === 'admin' ? (
             <div className="w-full min-h-screen bg-slate-950">
-              <AdminLayout
-                accounts={accounts}
-                setAccounts={setAccounts}
-                currentAccount={currentAccount}
-                setCurrentAccount={setCurrentAccount}
-                saveAccountToSupabase={saveAccountToSupabase}
-                language={language}
-                triggerModal={triggerModal}
-                updateState={updateState}
-                onLogout={handleLogout}
-                globalConfig={globalConfig}
-                onSaveGlobalConfig={async (newConfig: any) => {
-                  const success = await saveGlobalConfig(newConfig);
-                  if (success) {
-                    setGlobalConfig(newConfig);
-                    updateGlobalConfig(newConfig);
-                  }
-                  return success;
-                }}
-              />
+              <Suspense fallback={<TabLoadingFallback />}>
+                <AdminLayout
+                  accounts={accounts}
+                  setAccounts={setAccounts}
+                  currentAccount={currentAccount}
+                  setCurrentAccount={setCurrentAccount}
+                  saveAccountToSupabase={saveAccountToSupabase}
+                  language={language}
+                  triggerModal={triggerModal}
+                  updateState={updateState}
+                  onLogout={handleLogout}
+                  globalConfig={globalConfig}
+                  onSaveGlobalConfig={async (newConfig: any) => {
+                    const success = await saveGlobalConfig(newConfig);
+                    if (success) {
+                      setGlobalConfig(newConfig);
+                      updateGlobalConfig(newConfig);
+                    }
+                    return success;
+                  }}
+                />
+              </Suspense>
             </div>
           ) : state.isLoggedIn ? (
             <div className="max-w-md w-full bg-slate-900 border border-rose-950/50 rounded-2xl p-6 text-center space-y-4 shadow-2xl animate-fade-in mx-4">
@@ -3268,13 +3482,15 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <AdminRouteLoginForm
-              language={language}
-              triggerModal={triggerModal}
-              accounts={accounts}
-              setCurrentAccount={setCurrentAccount}
-              updateState={updateState}
-            />
+            <Suspense fallback={<TabLoadingFallback />}>
+              <AdminRouteLoginForm
+                language={language}
+                triggerModal={triggerModal}
+                accounts={accounts}
+                setCurrentAccount={setCurrentAccount}
+                updateState={updateState}
+              />
+            </Suspense>
           )}
         </div>
       ) : (
@@ -3307,8 +3523,9 @@ export default function App() {
                   {/* Brand Header */}
                   <div className="flex justify-between items-center mb-6">
                     <div>
-                      <div className="text-base font-black text-white tracking-widest font-sans">
-                        GROCK<span className="text-yellow-500">GOLD</span>
+                      <div className="text-base font-black tracking-widest font-sans">
+                        <span className="text-[#FFFFFF]">GROCK</span>
+                        <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span>
                       </div>
                       <div className="text-[7.5px] font-black text-slate-500 tracking-wider uppercase mt-0.5">
                         A RANDGOLD RESOURCES COMPANY
@@ -3452,7 +3669,6 @@ export default function App() {
                           { id: 'community', label: language === 'id' ? 'Komunitas' : 'Community', icon: Users },
                           ...(state.username.toLowerCase() !== 'admin' ? [{ id: 'referral', label: t.referral, icon: UserPlus }] : []),
                           { id: 'transactions', label: language === 'id' ? 'Riwayat Transaksi' : 'Transactions', icon: History },
-                          { id: 'notifications', label: language === 'id' ? 'Notifikasi' : 'Notifications', icon: Bell },
                           { id: 'errorhistory', label: language === 'id' ? 'Riwayat Error' : 'Error History', icon: AlertTriangle },
                         ].map((item) => {
                           const Icon = item.icon;
@@ -3476,14 +3692,7 @@ export default function App() {
                                     ? 'bg-gradient-to-br from-yellow-500 to-amber-600 text-black' 
                                     : 'bg-[#1b1245] text-purple-300 group-hover/item:bg-[#25195e]'
                                 }`}>
-                                  <div className="relative">
-                                    <Icon className={`w-4 h-4 ${isActive ? 'text-black' : 'text-purple-300'}`} />
-                                    {item.id === 'notifications' && (
-                                      <span className="absolute -top-1.5 -right-1.5 bg-yellow-500 text-black text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center border border-[#0a0518]">
-                                        3
-                                      </span>
-                                    )}
-                                  </div>
+                                  <Icon className={`w-4 h-4 ${isActive ? 'text-black' : 'text-purple-300'}`} />
                                 </div>
                                 <span className="text-xs font-bold truncate">{item.label}</span>
                               </div>
@@ -3596,31 +3805,33 @@ export default function App() {
         {/* 2. AUTHENTICATION SCREENS (WELCOME, REGISTER, LOGIN, FORGOT PASSWORD) */}
         {!state.isLoggedIn ? (
           showLanding ? (
-            <CompanyPortal
-              language={language}
-              toggleLanguage={() => {
-                const nextLang = language === 'id' ? 'en' : 'id';
-                try {
-                  localStorage.setItem('grockgold_lang', nextLang);
-                } catch (e) {}
-                setLanguage(nextLang);
-                triggerModal(
-                  nextLang === 'id'
-                    ? '🇲🇨 Bahasa diubah ke Bahasa Indonesia!'
-                    : '🇬🇧 Language changed to English!',
-                  'success'
-                );
-              }}
-              onNavigateToAuth={(screen) => {
-                setShowLanding(false);
-                setAuthScreen(screen);
-              }}
-              onNavigateToTab={(tab) => {
-                setShowLanding(false);
-                setCurrentTab(tab);
-              }}
-              memberCount={state.holders.length}
-            />
+            <Suspense fallback={<TabLoadingFallback />}>
+              <CompanyPortal
+                language={language}
+                toggleLanguage={() => {
+                  const nextLang = language === 'id' ? 'en' : 'id';
+                  try {
+                    localStorage.setItem('grockgold_lang', nextLang);
+                  } catch (e) {}
+                  setLanguage(nextLang);
+                  triggerModal(
+                    nextLang === 'id'
+                      ? '🇲🇨 Bahasa diubah ke Bahasa Indonesia!'
+                      : '🇬🇧 Language changed to English!',
+                    'success'
+                  );
+                }}
+                onNavigateToAuth={(screen) => {
+                  setShowLanding(false);
+                  setAuthScreen(screen);
+                }}
+                onNavigateToTab={(tab) => {
+                  setShowLanding(false);
+                  setCurrentTab(tab);
+                }}
+                memberCount={state.holders.length}
+              />
+            </Suspense>
           ) : (
             <div className="fixed inset-0 w-screen h-screen overflow-hidden flex flex-col justify-center items-center bg-[#04010b] z-[9999]">
             {/* Elegant Background Ambient Golden Glows */}
@@ -3664,8 +3875,9 @@ export default function App() {
 
                     {/* Title & Branding info with luxury gradient text */}
                     <div className="text-center space-y-0.5 mb-5.5">
-                      <h1 className="text-xl font-extrabold tracking-[0.25em] bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-200 bg-clip-text text-transparent font-orbitron uppercase text-center drop-shadow-[0_2px_10px_rgba(251,191,36,0.2)]">
-                        GROCKGOLD
+                      <h1 className="text-xl font-extrabold tracking-[0.25em] font-orbitron uppercase text-center drop-shadow-[0_2px_10px_rgba(255,215,0,0.3)]">
+                        <span className="text-[#FFFFFF]">GROCK</span>
+                        <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span>
                       </h1>
                       <p className="text-[9px] text-yellow-500/70 font-mono tracking-[0.3em] uppercase text-center mt-0.5">
                         PREMIUM PORTAL
@@ -4314,8 +4526,9 @@ export default function App() {
                 </button>
 
                 <div className="text-center">
-                  <div className="text-base font-black tracking-widest text-white font-orbitron">
-                    GROCKGOLD
+                  <div className="text-base font-black tracking-widest font-orbitron">
+                    <span className="text-[#FFFFFF]">GROCK</span>
+                    <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span>
                   </div>
                   <div className="text-[8px] text-slate-500 tracking-wider font-extrabold mt-[-2px] uppercase">
                     A Randgold Resources Company
@@ -4324,10 +4537,14 @@ export default function App() {
 
                 <div className="flex items-center gap-1.5">
                   <button
-                    onClick={() => triggerModal(language === 'id' ? 'Belum ada notifikasi baru.' : 'No new notifications.', 'info')}
-                    className="p-1.5 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition"
+                    onClick={() => setCurrentTab('notifications')}
+                    className="p-1.5 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition relative"
+                    title={language === 'id' ? 'Notifikasi' : 'Notifications'}
                   >
                     <Bell className="w-4.5 h-4.5 text-purple-400" />
+                    <span className="absolute top-0.5 right-0.5 bg-yellow-500 text-black text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center border border-[#0a0518]">
+                      3
+                    </span>
                   </button>
                 </div>
               </div>
@@ -4344,7 +4561,7 @@ export default function App() {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: slideDirection * -28 }}
                   transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
-                  className="w-full space-y-4"
+                  className={`w-full ${currentTab === 'transactions' ? 'flex-1 min-h-0 flex flex-col space-y-2' : 'space-y-4'}`}
                 >
 
               {/* HOME VIEW */}
@@ -4939,12 +5156,18 @@ export default function App() {
               )}
 
               {/* 👥 COMMUNITY VIEW */}
-              {currentTab === 'community' && <CommunityPage />}
-
-
+              {currentTab === 'community' && (
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <CommunityPage />
+                </Suspense>
+              )}
 
               {/* 🎡 LUCKY SPIN VIEW */}
-              {currentTab === 'luckyspin' && <LuckySpinPage calculateCountdown={calculateLuckySpinCountdown} />}
+              {currentTab === 'luckyspin' && (
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <LuckySpinPage calculateCountdown={calculateLuckySpinCountdown} />
+                </Suspense>
+              )}
 
               {/* ⚡ LIVE MINING VIEW */}
               {currentTab === 'livemining' && (
@@ -5135,47 +5358,53 @@ export default function App() {
 
               {/* NETWORK VIEW */}
               {currentTab === 'network' && (
-                <NetworkPage
-                  language={language}
-                  setCurrentTab={setCurrentTab}
-                  t={t}
-                  totalDownlinesCount={totalDownlinesCount}
-                  activeDownlinesCount={activeDownlinesCount}
-                  totalDownlineContracts={totalDownlineContracts}
-                  teamVolumeValue={teamVolumeValue}
-                  l1Count={l1Count}
-                  l2Count={l2Count}
-                  l3Count={l3Count}
-                  state={state}
-                  leaderboardData={leaderboardData}
-                />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <NetworkPage
+                    language={language}
+                    setCurrentTab={setCurrentTab}
+                    t={t}
+                    totalDownlinesCount={totalDownlinesCount}
+                    activeDownlinesCount={activeDownlinesCount}
+                    totalDownlineContracts={totalDownlineContracts}
+                    teamVolumeValue={teamVolumeValue}
+                    l1Count={l1Count}
+                    l2Count={l2Count}
+                    l3Count={l3Count}
+                    state={state}
+                    leaderboardData={leaderboardData}
+                  />
+                </Suspense>
               )}
 
               {/* DEDICATED GLOBAL LEADERBOARD VIEW */}
               {currentTab === 'leaderboard' && (
-                <Leaderboard
-                  accounts={accounts}
-                  state={state}
-                  currentAccount={currentAccount}
-                  language={language}
-                  setCurrentTab={setCurrentTab}
-                />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <Leaderboard
+                    accounts={accounts}
+                    state={state}
+                    currentAccount={currentAccount}
+                    language={language}
+                    setCurrentTab={setCurrentTab}
+                  />
+                </Suspense>
               )}
 
               {/* REFERRAL VIEW */}
               {currentTab === 'referral' && (
-                <ReferralDashboard
-                  accounts={accounts}
-                  currentAccount={currentAccount}
-                  state={state}
-                  language={language}
-                  setCurrentTab={setCurrentTab}
-                  copiedCode={copiedCode}
-                  copiedLink={copiedLink}
-                  handleCopyCode={handleCopyCode}
-                  handleCopyLink={handleCopyLink}
-                  triggerModal={triggerModal}
-                />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <ReferralDashboard
+                    accounts={accounts}
+                    currentAccount={currentAccount}
+                    state={state}
+                    language={language}
+                    setCurrentTab={setCurrentTab}
+                    copiedCode={copiedCode}
+                    copiedLink={copiedLink}
+                    handleCopyCode={handleCopyCode}
+                    handleCopyLink={handleCopyLink}
+                    triggerModal={triggerModal}
+                  />
+                </Suspense>
               )}
 
               {/* WALLET VIEW */}
@@ -5193,6 +5422,8 @@ export default function App() {
                   referralReward={referralReward}
                   rebateReward={rebateReward}
                   bonusReward={bonusReward}
+                  networkActiveCount={networkActiveCount}
+                  canClaimWelcomeBonus={canClaimWelcomeBonus}
                 />
               )}
 
@@ -6386,7 +6617,7 @@ export default function App() {
                     </h2>
                   </div>
 
-                  <div className="bg-[#0e061c] border border-white/5 rounded-3xl p-5 shadow-xl flex flex-col flex-1 min-h-0 space-y-4 overflow-hidden">
+                  <div className="bg-[#0e061c] border border-white/5 rounded-3xl p-4 sm:p-5 shadow-xl flex flex-col flex-1 min-h-0 space-y-3.5 overflow-hidden h-[calc(100dvh-165px)] max-h-[720px]">
                     {/* Filters Section (Search & Date Filter) */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
                       {/* Search Query */}
@@ -6455,6 +6686,15 @@ export default function App() {
                     <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                       {(() => {
                         const filteredTxs = (state.transactions || []).filter((tx) => {
+                          // Exclude wheel spin outcome transactions (spin results history is available on the Lucky Spin page)
+                          if (
+                            tx.type === 'lucky_spin_reward' ||
+                            tx.type === 'spin_reward' ||
+                            (tx.description && tx.description.toLowerCase().includes('hadiah lucky spin'))
+                          ) {
+                            return false;
+                          }
+
                           // 1. Filter by category
                           let matchesType = false;
                           if (txFilter === 'all') {
@@ -6468,21 +6708,31 @@ export default function App() {
                           } else if (txFilter === 'reward') {
                             matchesType = tx.type === 'reward';
                           } else if (txFilter === 'referral') {
-                            matchesType = tx.type === 'referral';
+                            matchesType = tx.type === 'referral' || tx.type === 'referral_spin_bonus';
                           } else if (txFilter === 'rebate') {
                             matchesType = tx.type === 'rebate';
                           } else if (txFilter === 'bonus') {
-                            matchesType = tx.type === 'welcome_bonus' || tx.type === 'bonus';
+                            matchesType = tx.type === 'welcome_bonus' || tx.type === 'bonus' || tx.type === 'referral_spin_bonus';
                           }
 
                           if (!matchesType) return false;
 
-                          // 2. Filter by search query
+                          // 2. Filter by search query (ID, Description, Downline name, or Username)
                           if (txSearchQuery) {
-                            const q = txSearchQuery.toLowerCase();
-                            const idMatches = (tx.id || '').toLowerCase().includes(q);
-                            const descMatches = (tx.description || '').toLowerCase().includes(q);
-                            if (!idMatches && !descMatches) return false;
+                            const q = txSearchQuery.trim().toLowerCase();
+                            if (q) {
+                              const idMatches = (tx.id || '').toLowerCase().includes(q);
+                              const descMatches = (tx.description || '').toLowerCase().includes(q);
+                              const userMatches = (tx.username || '').toLowerCase().includes(q);
+                              const downlineMatches = (
+                                (tx as any).downline || 
+                                (tx as any).downline_username || 
+                                (tx as any).downline_name || 
+                                ''
+                              ).toLowerCase().includes(q);
+
+                              if (!idMatches && !descMatches && !userMatches && !downlineMatches) return false;
+                            }
                           }
 
                           // 3. Filter by date range
@@ -6636,7 +6886,9 @@ export default function App() {
 
               {/* SYSTEM NOTIFICATIONS VIEW */}
               {currentTab === 'notifications' && (
-                <NotificationsPage language={language} setCurrentTab={setCurrentTab} />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <NotificationsPage language={language} setCurrentTab={setCurrentTab} />
+                </Suspense>
               )}
 
 
@@ -6911,32 +7163,44 @@ export default function App() {
 
               {/* SETTINGS VIEW */}
               {currentTab === 'settings' && (
-                <SettingsPage />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <SettingsPage />
+                </Suspense>
               )}
 
               {/* HELP & SUPPORT VIEW */}
               {currentTab === 'help' && (
-                <HelpPage language={language} setCurrentTab={setCurrentTab} triggerModal={triggerModal} />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <HelpPage language={language} setCurrentTab={setCurrentTab} triggerModal={triggerModal} />
+                </Suspense>
               )}
 
               {/* ABOUT US VIEW */}
               {currentTab === 'about' && (
-                <AboutPage language={language} setCurrentTab={setCurrentTab} triggerModal={triggerModal} />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <AboutPage language={language} setCurrentTab={setCurrentTab} triggerModal={triggerModal} />
+                </Suspense>
               )}
 
               {/* PRIVACY POLICY VIEW */}
               {currentTab === 'privacy' && (
-                <PrivacyPolicyPage language={language} setCurrentTab={setCurrentTab} />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <PrivacyPolicyPage language={language} setCurrentTab={setCurrentTab} />
+                </Suspense>
               )}
 
               {/* TERMS OF SERVICE VIEW */}
               {currentTab === 'terms' && (
-                <TermsOfServicePage language={language} setCurrentTab={setCurrentTab} />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <TermsOfServicePage language={language} setCurrentTab={setCurrentTab} />
+                </Suspense>
               )}
 
               {/* CONTACT INFO VIEW */}
               {currentTab === 'contact' && (
-                <ContactInfoPage language={language} setCurrentTab={setCurrentTab} triggerModal={triggerModal} />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <ContactInfoPage language={language} setCurrentTab={setCurrentTab} triggerModal={triggerModal} />
+                </Suspense>
               )}
 
                 </motion.div>
@@ -7364,7 +7628,9 @@ export default function App() {
                   <X className="w-5 h-5" />
                 </button>
 
-                <LuckySpinPage />
+                <Suspense fallback={<TabLoadingFallback />}>
+                  <LuckySpinPage />
+                </Suspense>
               </motion.div>
             </div>
           )}

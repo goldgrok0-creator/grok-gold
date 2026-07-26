@@ -445,9 +445,16 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
       // Gather transactions belonging to this user
       const userTxs: Transaction[] = [];
 
-      // 1. Map standard transactions (filter out 'deposit' and 'withdraw' types to prevent duplicates with deposits and withdrawals tables)
+      // 1. Map standard transactions (filter out 'deposit' and 'withdraw' types to prevent duplicates with deposits and withdrawals tables, and filter out wheel spin rewards)
       transactions
-        .filter((t: any) => t.username.toLowerCase() === usernameLower && t.type !== 'deposit' && t.type !== 'withdraw')
+        .filter((t: any) => 
+          t.username.toLowerCase() === usernameLower && 
+          t.type !== 'deposit' && 
+          t.type !== 'withdraw' &&
+          t.type !== 'lucky_spin_reward' &&
+          t.type !== 'spin_reward' &&
+          !(t.description && t.description.toLowerCase().includes('hadiah lucky spin'))
+        )
         .forEach((t: any) => {
           userTxs.push({
             id: t.id,
@@ -526,11 +533,16 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
       userTxs.sort((a, b) => b.date - a.date);
 
       // Compute downline accounts (holders)
+      const userRefCode = user.referral_code ? user.referral_code.toLowerCase() : '';
       const holders = users
-        .filter((u: any) => u.invited_by?.toLowerCase() === usernameLower)
+        .filter((u: any) => {
+          if (!u.invited_by) return false;
+          const inv = u.invited_by.toLowerCase();
+          return inv === usernameLower || (userRefCode && inv === userRefCode);
+        })
         .map((u: any) => ({
           id: 'H-' + u.username,
-          name: u.full_name,
+          name: u.full_name || u.username,
           contracts: Number(u.active_contracts) || 0,
           joinDate: Number(u.created_at) || Date.now()
         }));
@@ -582,6 +594,20 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
       const userColRewardBal = (user.reward_balance !== undefined && user.reward_balance !== null) ? Number(user.reward_balance) : undefined;
       const finalRewardBalance = (userColRewardBal !== undefined && !isNaN(userColRewardBal)) ? userColRewardBal : calculatedRewardBal;
 
+      // Calculate referral spin bonuses for this user from transactions or direct downlines
+      const refSpinTxBonusTotal = userTxs
+        .filter((t: any) => t.type === 'referral_spin_bonus')
+        .reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0);
+
+      const userInvCode = user.referral_code || '';
+      const downlineCount = users.filter((u: any) => 
+        (u.invited_by && u.invited_by.toLowerCase() === usernameLower) ||
+        (userInvCode && u.invited_by && u.invited_by.toLowerCase() === userInvCode.toLowerCase())
+      ).length;
+
+      const expectedRefSpinBonus = Math.max(refSpinTxBonusTotal, downlineCount * 50000);
+      const minExpectedFreeSpin = 1000000 + expectedRefSpinBonus;
+
       // Fetch from unified spin_balances table
       const userSpinRows = spinBalances.filter((sb: any) => sb.username?.toLowerCase() === usernameLower);
       const freeSpinRow = userSpinRows.find((sb: any) => sb.type === 'free');
@@ -593,7 +619,11 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
 
       const rawFreeSpin = freeRowVal !== undefined
         ? freeRowVal
-        : (userColVal !== undefined ? userColVal : (userSettingsVal !== undefined ? userSettingsVal : 1000000));
+        : (userColVal !== undefined
+            ? userColVal
+            : (userSettingsVal !== undefined
+                ? userSettingsVal
+                : 1000000 + expectedRefSpinBonus));
 
       const rawBonusSpin = bonusSpinRow
         ? Number(bonusSpinRow.amount)
@@ -888,11 +918,13 @@ export async function registerUserInSupabase(account: UserAccount): Promise<{ su
 
           const currentSbBal = sbRow?.amount !== undefined && sbRow?.amount !== null ? Number(sbRow.amount) : undefined;
           const currentSettingBal = sponsorData.settings?.freeSpinBalance !== undefined ? Number(sponsorData.settings.freeSpinBalance) : undefined;
+          const currentColBal = (sponsorData as any).free_spin_balance !== undefined && (sponsorData as any).free_spin_balance !== null ? Number((sponsorData as any).free_spin_balance) : undefined;
 
-          const oldSponsorBal = currentSbBal ?? currentSettingBal ?? 1000000;
+          const oldSponsorBal = Math.max(currentSbBal ?? 0, currentSettingBal ?? 0, currentColBal ?? 0, 1000000);
           const newSponsorBal = oldSponsorBal + 50000;
 
           await supabase.from('users').update({
+            free_spin_balance: newSponsorBal,
             settings: {
               ...(sponsorData.settings || {}),
               freeSpinBalance: newSponsorBal
@@ -1181,7 +1213,27 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
       dbFreeSpin
     ].filter((v): v is number => typeof v === 'number' && !isNaN(v) && v >= 0);
 
-    const mergedFreeSpinBal = validFreeSpinInputs.length > 0 ? Math.min(...validFreeSpinInputs) : 1000000;
+    let refSpinBonusTxTotal = 0;
+    try {
+      const { data: refTxs } = await supabase
+        .from('transactions')
+        .select('amount')
+        .ilike('username', account.username)
+        .eq('type', 'referral_spin_bonus');
+      if (refTxs && Array.isArray(refTxs)) {
+        refSpinBonusTxTotal = refTxs.reduce((sum: number, t: any) => sum + (Number(t.amount) || 0), 0);
+      }
+    } catch (_) {}
+
+    const minExpectedFreeSpin = 1000000 + refSpinBonusTxTotal;
+
+    const mergedFreeSpinBal = typeof accountFreeSpin === 'number' && !isNaN(accountFreeSpin) && accountFreeSpin >= 0
+      ? accountFreeSpin
+      : (typeof accountSettingsFreeSpin === 'number' && !isNaN(accountSettingsFreeSpin) && accountSettingsFreeSpin >= 0
+          ? accountSettingsFreeSpin
+          : (typeof dbFreeSpin === 'number' && !isNaN(dbFreeSpin) && dbFreeSpin >= 0
+              ? dbFreeSpin
+              : 1000000 + refSpinBonusTxTotal));
 
     const mergedLastReset = account.settings?.lastSpinResetAt || existingSettings.lastSpinResetAt;
 
@@ -1244,6 +1296,63 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
   } catch (err: any) {
     console.info('Supabase save user network notice:', err?.message || err);
     return false;
+  }
+}
+
+/**
+ * Synchronously or keepalive-flushes the final account state to Supabase when the user closes or hides the app.
+ * Uses keepalive: true in fetch so the request completes even if the browser window/tab closes.
+ */
+export function flushAccountToSupabaseWithKeepAlive(account: UserAccount): void {
+  if (!account || !account.username) return;
+
+  try {
+    const freeSpinBal = typeof account.settings?.freeSpinBalance === 'number'
+      ? account.settings.freeSpinBalance
+      : (typeof (account.state as any)?.freeSpinBalance === 'number' ? (account.state as any).freeSpinBalance : 1000000);
+    const bonusSpinBal = typeof account.settings?.bonusSpinBalance === 'number'
+      ? account.settings.bonusSpinBalance
+      : (typeof (account.state as any)?.bonusSpinBalance === 'number' ? (account.state as any).bonusSpinBalance : 0);
+
+    const payload: any = {
+      main_balance: account.state.mainBalance || 0,
+      reward_balance: account.state.rewardBalance ?? 0,
+      free_spin_balance: freeSpinBal,
+      bonus_spin_balance: bonusSpinBal,
+      active_contracts: account.state.activeContracts || 0,
+      total_earned: account.state.totalEarned || 0,
+      referral_earned: account.state.referralEarned || 0,
+      rebate_earned: account.state.rebateEarned || 0,
+      last_claim_time: account.state.lastClaimTime || 0,
+      welcome_bonus_claimed: !!account.state.welcomeBonusClaimed,
+      pending_mining_reward: account.state.pendingMiningReward || 0,
+      settings: {
+        ...(account.settings || {}),
+        freeSpinBalance: freeSpinBal,
+        bonusSpinBalance: bonusSpinBal,
+        rewardSpinWallet: bonusSpinBal,
+      }
+    };
+
+    const baseUrl = getSupabaseUrl();
+    const apiKey = getSupabaseKey(baseUrl);
+    const endpoint = `${baseUrl}/rest/v1/users?username=eq.${encodeURIComponent(account.username)}`;
+
+    fetch(endpoint, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': apiKey,
+        'Authorization': `Bearer ${apiKey}`,
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify(payload),
+      keepalive: true
+    }).catch(err => {
+      console.info('Keepalive flush fetch notice:', err?.message || err);
+    });
+  } catch (err) {
+    console.warn('Error in flushAccountToSupabaseWithKeepAlive:', err);
   }
 }
 

@@ -585,3 +585,5 @@ export const CommunityPage: React.FC = () => {
     </div>
   );
 };
+
+export default CommunityPage;

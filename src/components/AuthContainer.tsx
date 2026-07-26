@@ -165,8 +165,9 @@ export const AuthContainer: React.FC = () => {
               </motion.div>
 
               <div className="text-center mb-6">
-                <h1 className="text-2xl font-black text-white tracking-widest font-orbitron">
-                  GROCK<span className="text-yellow-500">GOLD</span>
+                <h1 className="text-2xl font-black tracking-widest font-orbitron">
+                  <span className="text-[#FFFFFF]">GROCK</span>
+                  <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span>
                 </h1>
                 <p className="text-[10px] text-slate-500 font-extrabold tracking-wider uppercase mt-1">
                   A RANDGOLD RESOURCES COMPANY

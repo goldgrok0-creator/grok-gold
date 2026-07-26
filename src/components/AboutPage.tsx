@@ -32,8 +32,9 @@ export const AboutPage: React.FC<AboutPageProps> = ({
 
       <div className="bg-[#0e061c] border border-gold-primary/25 rounded-3xl p-5 shadow-xl space-y-4">
         <div className="flex justify-center mb-1">
-          <span className="text-lg font-black tracking-widest bg-gradient-to-r from-yellow-300 via-gold-primary to-yellow-600 bg-clip-text text-transparent font-orbitron">
-            GROCKGOLD
+          <span className="text-lg font-black tracking-widest font-orbitron">
+            <span className="text-[#FFFFFF]">GROCK</span>
+            <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span>
           </span>
         </div>
 

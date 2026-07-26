@@ -292,8 +292,9 @@ export default function CompanyLandingPage({
                 </div>
               </div>
               <div>
-                <span className="text-md font-black tracking-widest text-white font-sans">
-                  GROCK<span className="text-gradient-gold text-yellow-500">GOLD</span>
+                <span className="text-md font-black tracking-widest font-sans">
+                  <span className="text-[#FFFFFF]">GROCK</span>
+                  <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span>
                 </span>
                 <span className="block text-[7px] text-slate-500 font-extrabold tracking-widest uppercase">MINING</span>
               </div>
@@ -1007,7 +1008,10 @@ export default function CompanyLandingPage({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6">
           
           <div className="flex flex-col items-center gap-2">
-            <span className="text-sm font-black text-white tracking-widest font-sans uppercase">GROCK<span className="text-yellow-500">GOLD</span> MINING</span>
+            <span className="text-sm font-black tracking-widest font-sans uppercase">
+              <span className="text-[#FFFFFF]">GROCK</span>
+              <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span> MINING
+            </span>
             <span className="text-[8px] text-slate-500 font-extrabold tracking-widest uppercase">A RANDGOLD RESOURCES COMPANY</span>
           </div>
 

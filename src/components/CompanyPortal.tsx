@@ -350,9 +350,9 @@ export default function CompanyPortal({
           
           {/* Brand Logo */}
           <div className="cursor-pointer" onClick={() => scrollToSection('home')}>
-            <div className="text-base sm:text-lg font-black tracking-widest text-white uppercase flex items-center gap-2">
-              <span className="bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-600 bg-clip-text text-transparent">GROCK</span>
-              <span className="text-yellow-500">GOLD</span>
+            <div className="text-base sm:text-lg font-black tracking-widest uppercase flex items-center">
+              <span className="text-[#FFFFFF]">GROCK</span>
+              <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span>
             </div>
             <div className="text-[7px] text-slate-400 font-bold tracking-wider uppercase">
               A RANDGOLD RESOURCES COMPANY
@@ -1460,8 +1460,9 @@ export default function CompanyPortal({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row justify-between items-center gap-6">
             <div>
-              <div className="text-sm font-black tracking-widest text-white uppercase mb-1">
-                GROCK<span className="text-yellow-500">GOLD</span>
+              <div className="text-sm font-black tracking-widest uppercase mb-1">
+                <span className="text-[#FFFFFF]">GROCK</span>
+                <span className="text-[#FFD700] bg-gradient-to-r from-[#FFE57F] via-[#FFD700] to-[#B8860B] bg-clip-text text-transparent">GOLD</span>
               </div>
               <div className="text-[8px] tracking-wider uppercase font-mono">
                 A RANDGOLD RESOURCES COMPANY | PARTNER PORTAL
