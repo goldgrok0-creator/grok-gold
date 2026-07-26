@@ -11,7 +11,8 @@ import {
   LogOut,
   Globe,
   X,
-  RotateCw
+  RotateCw,
+  Send
 } from 'lucide-react';
 import { UserAccount, Transaction, AppState } from '../../types';
 import { supabase } from '../../supabase';
@@ -32,6 +33,7 @@ const Settings = React.lazy(() => import('../../pages/admin/Settings'));
 const Contracts = React.lazy(() => import('../../pages/admin/Contracts'));
 const Network = React.lazy(() => import('../../pages/admin/Network'));
 const SpinControl = React.lazy(() => import('../../pages/admin/SpinControl'));
+const TelegramAdmin = React.lazy(() => import('../../pages/admin/Telegram'));
 
 interface AdminLayoutProps {
   accounts: UserAccount[];
@@ -378,6 +380,7 @@ export default function AdminLayout({
     { path: '/admin/deposit', id: 'deposit', label: language === 'id' ? 'Deposit' : 'Deposits', icon: ArrowDownCircle },
     { path: '/admin/withdraw', id: 'withdraw', label: language === 'id' ? 'Penarikan' : 'Withdrawals', icon: ArrowUpCircle },
     { path: '/admin/contracts', id: 'contracts', label: language === 'id' ? 'Kontrak' : 'Contracts', icon: Briefcase },
+    { path: '/admin/telegram', id: 'telegram', label: language === 'id' ? 'Integrasi Telegram' : 'Telegram Integration', icon: Send },
     { path: '/admin/settings', id: 'settings', label: language === 'id' ? 'Settings' : 'Settings', icon: WalletIcon },
     { path: '/admin/network', id: 'network', label: language === 'id' ? 'Jaringan' : 'Network', icon: NetworkIcon },
   ];
@@ -473,6 +476,11 @@ export default function AdminLayout({
           globalConfig={globalConfig}
           onSaveGlobalConfig={onSaveGlobalConfig}
         />
+      );
+    }
+    if (currentPath === '/admin/telegram') {
+      return (
+        <TelegramAdmin />
       );
     }
     // Fallback to Dashboard

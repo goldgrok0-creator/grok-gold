@@ -92,7 +92,7 @@ export const telegramService = {
     });
   },
 
-  async generateLinkingCode(username: string): Promise<{ success: boolean; code?: string; expiresAt?: string; error?: string }> {
+  async generateLinkingCode(username: string): Promise<{ success: boolean; code?: string; expiresAt?: string; botUsername?: string; deepLink?: string; error?: string }> {
     try {
       const res = await fetch('/api/telegram/generate-link-code', {
         method: 'POST',
@@ -111,6 +111,19 @@ export const telegramService = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ initData })
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  },
+
+  async unlinkAccount(username: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const res = await fetch('/api/telegram/user/unlink', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
       });
       return await res.json();
     } catch (err) {

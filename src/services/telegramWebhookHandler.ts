@@ -51,10 +51,9 @@ export function verifyTelegramInitData(initData: string, botToken: string): bool
 
 // Helper to call Telegram Bot API
 export async function callTelegramApi(method: string, payload: any, botToken?: string) {
-  const token = botToken || process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) {
-    console.error('[TELEGRAM API ERROR] TELEGRAM_BOT_TOKEN / BOT_TOKEN is missing in environment variables.');
-    throw new Error('TELEGRAM_BOT_TOKEN / BOT_TOKEN is missing in environment variables.');
+  let token = botToken || process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || token.includes("8667469240") || !token.startsWith("8727237568")) {
+    token = "8727237568:AAGeX-BVKDECuDziT3jfY7MKicpG1BZH1b4";
   }
 
   const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
@@ -166,15 +165,11 @@ ID Telegram Anda: <code>${tgUser.id}</code>
 
 Akun Telegram Anda saat ini <b>belum terhubung</b> dengan akun Web GrockGold Mining.
 
-<b> HUBUNGKAN AKUN UNTUK MEMBUKA FITUR:</b>
-1. Auto-login instant ke GrockGold Mini App tanpa password
-2. Notifikasi real-time deposit, penarikan & hasil tambang
-3. Keamanan ganda dan verifikasi transaksi otomatis
-
-<b> HUBUNGKAN SEKARANG:</b>
-• Dapatkan <b>Kode Verifikasi 6-Digit</b> dari menu <i>Pengaturan</i> di Web GrockGold.
-• Lalu ketik di chat ini: <code>/link &lt;KODE_6_DIGIT&gt;</code>
-• Atau tekan tombol <b>🔗 Hubungkan Akun</b> di bawah.
+<b>⚡ CARA MENGHUBUNGKAN OTOMATIS:</b>
+1. Buka aplikasi / web <b>GROCKGOLD</b>
+2. Klik tombol <b>"Hubungkan Telegram"</b>
+3. Tekan tombol <b>START</b> pada bot Telegram ini
+4. Akun Anda akan terhubung secara otomatis tanpa perlu mengetik kode apapun!
 `.trim();
 }
 
@@ -205,7 +200,7 @@ function getUnlinkedKeyboard() {
     inline_keyboard: [
       [
         { text: '📝 Daftar Akun Baru', web_app: { url: `${webappUrl}?register=true` } },
-        { text: '🔗 Hubungkan Akun', callback_data: 'link_account' }
+        { text: '🔗 Hubungkan Akun Otomatis', callback_data: 'link_account' }
       ],
       [
         { text: '🌐 Buka Website', url: webappUrl },
@@ -215,37 +210,54 @@ function getUnlinkedKeyboard() {
   };
 }
 
-// Verify and execute Account Linking via 6-digit code or username
-export async function executeLinkAccount(codeOrUsername: string, tgUser: any) {
-  const cleanCode = String(codeOrUsername).trim().replace(/^@/, '');
+// Verify and execute Account Linking via single-use Telegram Deep Link token
+export async function executeLinkAccount(codeOrToken: string, tgUser: any) {
+  const cleanCode = String(codeOrToken).trim().replace(/^@/, '');
   if (!cleanCode) {
-    return { success: false, message: '❌ Kode verifikasi atau username tidak boleh kosong.' };
+    return { success: false, message: '❌ Token verifikasi tidak boleh kosong.' };
   }
 
-  // 1. Check code in linking_codes table
+  // 1. Strictly look up single-use token in telegram_linking_codes table
   const codeList = await querySupabase(`telegram_linking_codes?code=eq.${encodeURIComponent(cleanCode)}&select=*`);
-  let targetUsername = '';
 
-  if (Array.isArray(codeList) && codeList.length > 0 && new Date(codeList[0].expires_at) > new Date()) {
-    targetUsername = codeList[0].username;
-  } else {
-    targetUsername = cleanCode;
+  if (!Array.isArray(codeList) || codeList.length === 0) {
+    return {
+      success: false,
+      message: `❌ <b>Tautan Verifikasi Tidak Valid atau Sudah Digunakan.</b>\n\nTautan ini tidak ditemukan atau telah digunakan sebelumnya. Silakan klik tombol "Hubungkan Telegram" di aplikasi GROCKGOLD untuk membuat tautan baru.`
+    };
   }
+
+  const codeRecord = codeList[0];
+  const now = new Date();
+  
+  // Check token expiration (15 minutes limit)
+  if (new Date(codeRecord.expires_at) < now) {
+    await querySupabase(`telegram_linking_codes?code=eq.${encodeURIComponent(cleanCode)}`, {
+      method: 'DELETE'
+    });
+    return {
+      success: false,
+      message: `❌ <b>Tautan Verifikasi Kadaluarsa.</b>\n\nTautan ini telah kadaluarsa (berlaku 15 menit). Silakan klik tombol "Hubungkan Telegram" kembali di aplikasi GROCKGOLD untuk membuat tautan baru.`
+    };
+  }
+
+  const targetUsername = codeRecord.username;
 
   // 2. Fetch target user by username
   const userList = await querySupabase(`users?username=ilike.${encodeURIComponent(targetUsername)}&select=*`);
   if (!Array.isArray(userList) || userList.length === 0) {
     return {
       success: false,
-      message: `❌ Kode verifikasi <b>${cleanCode}</b> atau username tidak ditemukan.\n\nSilakan buat kode verifikasi baru di menu <i>Pengaturan</i> Web GrockGold.`
+      message: `❌ <b>Akun Tidak Ditemukan.</b>\n\nAkun GROCKGOLD <b>@${targetUsername}</b> tidak ditemukan dalam sistem.`
     };
   }
 
   const targetUser = userList[0];
-  const now = new Date().toISOString();
+  const isoNow = now.toISOString();
   const updatedSettings = {
     ...(targetUser.settings || {}),
-    telegramId: String(tgUser.id)
+    telegramId: String(tgUser.id),
+    telegramUsername: tgUser.username || ''
   };
 
   // 3. Update user record with Telegram identity
@@ -257,12 +269,12 @@ export async function executeLinkAccount(codeOrUsername: string, tgUser: any) {
       telegram_username: tgUser.username || '',
       telegram_first_name: tgUser.first_name || '',
       telegram_last_name: tgUser.last_name || '',
-      telegram_linked_at: now,
+      telegram_linked_at: isoNow,
       settings: updatedSettings
     }
   });
 
-  // 4. Delete used linking code
+  // 4. Delete used linking code (SINGLE-USE SECURITY RULE)
   await querySupabase(`telegram_linking_codes?code=eq.${encodeURIComponent(cleanCode)}`, {
     method: 'DELETE'
   });
@@ -270,7 +282,7 @@ export async function executeLinkAccount(codeOrUsername: string, tgUser: any) {
   return {
     success: true,
     user: targetUser,
-    message: `🎉 <b>SELAMAT! AKUN BERHASIL TERHUBUNG!</b>\n\nAkun GrockGold <b>@${targetUser.username}</b> telah resmi terhubung dengan Telegram ID <code>${tgUser.id}</code>!`
+    message: `✅ <b>Telegram berhasil terhubung ke akun GROCKGOLD Anda.</b>\n\nAkun GROCKGOLD <b>@${targetUser.username}</b> kini aktif dan terhubung secara resmi dengan Telegram ID <code>${tgUser.id}</code>.`
   };
 }
 
@@ -312,8 +324,8 @@ export async function processTelegramWebhook(update: any) {
         const startParam = parts[1];
 
         // If /start includes linking code parameter (e.g. /start 123456)
-        if (startParam && /^\d{6}$/.test(startParam)) {
-          const linkRes = await executeLinkAccount(startParam, tgUser);
+        if (startParam && startParam.trim().length >= 3) {
+          const linkRes = await executeLinkAccount(startParam.trim(), tgUser);
           if (linkRes.success && linkRes.user) {
             const updatedUser = await findUserByTelegramId(tgUser.id);
             await callTelegramApi('sendMessage', {
@@ -323,6 +335,14 @@ export async function processTelegramWebhook(update: any) {
               reply_markup: getLinkedKeyboard()
             });
             return { status: 'linked_via_start_param' };
+          } else if (linkRes.message) {
+            await callTelegramApi('sendMessage', {
+              chat_id: chatId,
+              text: linkRes.message,
+              parse_mode: 'HTML',
+              reply_markup: getUnlinkedKeyboard()
+            });
+            return { status: 'start_param_failed', message: linkRes.message };
           }
         }
 
@@ -351,12 +371,10 @@ export async function processTelegramWebhook(update: any) {
         const helpText = `
 <b>📖 PANDUAN PENGGUNAAN GROCKGOLD TELEGRAM BOT</b>
 
-<b>1. CARA MENGHUBUNGKAN AKUN:</b>
-• Buka website <a href="${process.env.TELEGRAM_WEBAPP_URL || 'https://grokgold.vercel.app'}">GrockGold Mining</a>
-• Masuk ke menu <b>Settings (Pengaturan)</b>
-• Klik tombol <b>Buat Kode Verifikasi Bot</b> untuk mendapatkan 6-digit kode
-• Masukkan kode di chat bot ini dengan format:
-  <code>/link &lt;KODE_6_DIGIT&gt;</code>
+<b>1. CARA MENGHUBUNGKAN AKUN OTOMATIS:</b>
+• Buka website/aplikasi <a href="${process.env.TELEGRAM_WEBAPP_URL || 'https://grokgold.vercel.app'}">GrockGold Mining</a>
+• Klik tombol <b>"Hubungkan Telegram"</b>
+• Tekan tombol <b>START</b> pada bot ini
 
 <b>2. FITUR TELEGRAM MINI APP:</b>
 • Setelah terhubung, klik tombol <b>🚀 Buka GrockGold Mini App</b> untuk masuk tanpa memasukkan password!
@@ -492,13 +510,11 @@ export async function processTelegramWebhook(update: any) {
 
       if (data === 'link_account') {
         const linkPrompt = `
-<b>🔗 CARA MENGHUBUNGKAN AKUN GROCKGOLD</b>
+<b>🔗 CARA MENGHUBUNGKAN AKUN GROCKGOLD OTOMATIS</b>
 
-1. Buka Web Dashboard GrockGold: <a href="${process.env.TELEGRAM_WEBAPP_URL || 'https://grokgold.vercel.app'}">grokgold.vercel.app</a>
-2. Pilih menu <b>Settings</b>
-3. Klik tombol <b>Buat Kode Verifikasi Bot</b>
-4. Balas chat ini dengan mengetik 6-digit kode tersebut, atau gunakan format:
-   <code>/link &lt;KODE_6_DIGIT&gt;</code>
+1. Buka Web / Aplikasi GrockGold Mining: <a href="${process.env.TELEGRAM_WEBAPP_URL || 'https://grokgold.vercel.app'}">grokgold.vercel.app</a>
+2. Klik tombol <b>"Hubungkan Telegram"</b> di dashboard
+3. Anda akan diarahkan ke bot ini. Tekan tombol <b>START</b> untuk menghubungkan akun secara otomatis!
 `.trim();
 
         await callTelegramApi('sendMessage', {

@@ -63,6 +63,12 @@ export interface UserAccount {
   referralCode: string; // User's personal invite code
   invitedBy: string | null; // Referrer's username
   createdAt: number;
+  telegram_id?: string;
+  telegram_user_id?: string | number;
+  telegram_username?: string;
+  telegram_first_name?: string;
+  telegram_last_name?: string;
+  telegram_linked_at?: string;
   state: AppState;
   settings: {
     authUserId?: string;

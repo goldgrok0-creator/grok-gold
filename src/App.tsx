@@ -88,6 +88,7 @@ import { SearchableCountrySelect } from './components/SearchableCountrySelect';
 import { WORLD_COUNTRIES } from './data/countries';
 import ContractPage from './components/ContractPage';
 import WalletPage from './components/WalletPage';
+import { TelegramLinkingBanner } from './components/TelegramLinkingBanner';
 import { HarvestModal } from './components/HarvestModal';
 import ClockIcon from './components/icons/ClockIcon';
 
@@ -4570,6 +4571,9 @@ export default function App() {
                 ) : (
                   <div className="space-y-4">
                     
+                  {/* TELEGRAM OFFICIAL BOT LINKING BANNER */}
+                  <TelegramLinkingBanner />
+
                   {/* MASTER BALANCE CARD */}
                   <div className="relative bg-gradient-to-br from-[#1b0b3a] via-[#09041a] to-[#03010c] border border-gold-primary/25 rounded-3xl p-5 shadow-2xl overflow-hidden group">
                     {/* Glowing Accent Orbs */}
@@ -6536,6 +6540,9 @@ export default function App() {
                         </button>
                       </div>
                     </div>
+
+                    {/* TELEGRAM OFFICIAL BOT INTEGRATION */}
+                    <TelegramLinkingBanner />
 
                     {/* SETTINGS SECTION */}
                     <div className="bg-[#0e061c] border border-white/5 rounded-2xl p-4 shadow-lg space-y-3.5">

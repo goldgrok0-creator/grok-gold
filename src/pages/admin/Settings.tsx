@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Save, Lock, Shield, Key, Bell, Globe, HelpCircle, Check, CreditCard, DollarSign, Cpu } from 'lucide-react';
 import { GlobalConfig, CONFIG } from '../../types';
-import { saveGlobalConfigToSupabase } from '../../supabase';
+import { saveGlobalConfigToSupabase, supabase } from '../../supabase';
 
 interface SettingsProps {
   language: 'id' | 'en';
@@ -43,9 +43,93 @@ export default function Settings({
   // Admin Credentials Change
   const [adminCurrentPass, setAdminCurrentPass] = useState('');
   const [adminNewPass, setAdminNewPass] = useState('');
-  const [adminSecurityPin, setAdminSecurityPin] = useState('123456');
+  const [adminConfirmPass, setAdminConfirmPass] = useState('');
+  const [isChangingPass, setIsChangingPass] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
+
+  const handleChangeAdminPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminNewPass || adminNewPass.trim() === '') {
+      triggerModal(
+        language === 'id' ? 'Silakan masukkan password baru.' : 'Please enter a new password.',
+        'warning'
+      );
+      return;
+    }
+    if (adminNewPass !== adminConfirmPass) {
+      triggerModal(
+        language === 'id' ? 'Konfirmasi password baru tidak cocok!' : 'New password confirmation does not match!',
+        'danger'
+      );
+      return;
+    }
+    if (adminNewPass.trim().length < 6) {
+      triggerModal(
+        language === 'id' ? 'Password baru minimal 6 karakter.' : 'New password must be at least 6 characters.',
+        'warning'
+      );
+      return;
+    }
+
+    setIsChangingPass(true);
+    try {
+      // Find admin account from Supabase users table
+      const { data: adminUser, error: fetchErr } = await supabase
+        .from('users')
+        .select('*')
+        .or('username.eq.admin,role.eq.admin')
+        .limit(1)
+        .maybeSingle();
+
+      if (fetchErr) {
+        throw fetchErr;
+      }
+
+      if (adminUser && adminCurrentPass.trim() !== '') {
+        if (adminUser.password && adminUser.password !== adminCurrentPass.trim()) {
+          triggerModal(
+            language === 'id' ? '❌ Password saat ini tidak sesuai!' : '❌ Current password is incorrect!',
+            'danger'
+          );
+          setIsChangingPass(false);
+          return;
+        }
+      }
+
+      const targetUsername = adminUser ? adminUser.username : 'admin';
+
+      const { error: updateErr } = await supabase
+        .from('users')
+        .update({ password: adminNewPass.trim() })
+        .eq('username', targetUsername);
+
+      if (updateErr) {
+        throw updateErr;
+      }
+
+      setAdminCurrentPass('');
+      setAdminNewPass('');
+      setAdminConfirmPass('');
+
+      triggerModal(
+        language === 'id'
+          ? '✅ Password Admin berhasil diperbarui!'
+          : '✅ Admin password updated successfully!',
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Error changing admin password:', err);
+      triggerModal(
+        language === 'id'
+          ? '❌ Gagal memperbarui password admin: ' + (err?.message || 'Error')
+          : '❌ Failed to update admin password.',
+        'danger'
+      );
+    } finally {
+      setIsChangingPass(false);
+    }
+  };
 
   const handleSaveAllSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -293,6 +377,69 @@ export default function Settings({
               </div>
             </div>
           </div>
+
+          {/* SECTION 4: GANTI PASSWORD ADMIN */}
+          <div className="bg-slate-950/60 p-5 rounded-2xl border border-slate-800 space-y-4 lg:col-span-2">
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+              <Lock className="w-5 h-5 text-rose-400" />
+              <h4 className="text-xs font-black uppercase text-slate-200 tracking-wider">
+                4. KEAMANAN & UBAH PASSWORD ADMIN
+              </h4>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                  Password Saat Ini
+                </label>
+                <input
+                  type="password"
+                  placeholder="Password lama (opsional)..."
+                  value={adminCurrentPass}
+                  onChange={(e) => setAdminCurrentPass(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-white font-mono focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                  Password Baru
+                </label>
+                <input
+                  type="password"
+                  placeholder="Password baru..."
+                  value={adminNewPass}
+                  onChange={(e) => setAdminNewPass(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-amber-300 font-mono focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                  Konfirmasi Password Baru
+                </label>
+                <input
+                  type="password"
+                  placeholder="Ulangi password baru..."
+                  value={adminConfirmPass}
+                  onChange={(e) => setAdminConfirmPass(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-amber-300 font-mono focus:outline-none focus:border-rose-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={handleChangeAdminPassword}
+                disabled={isChangingPass}
+                className="px-6 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black rounded-xl uppercase transition cursor-pointer shadow-lg shadow-rose-950/40 flex items-center gap-2"
+              >
+                <Key className="w-4 h-4" />
+                <span>{isChangingPass ? 'Memproses...' : 'Perbarui Password Admin'}</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* SAVE BUTTON */}
@@ -310,3 +457,4 @@ export default function Settings({
     </div>
   );
 }
+
