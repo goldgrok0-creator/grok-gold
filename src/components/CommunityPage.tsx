@@ -113,7 +113,6 @@ export const CommunityPage: React.FC = () => {
         const { count: usersCount } = await supabase
           .from('users')
           .select('*', { count: 'exact', head: true })
-          .neq('username', 'admin')
           .neq('role', 'admin');
 
         if (typeof usersCount === 'number' && isMounted) {
@@ -126,7 +125,6 @@ export const CommunityPage: React.FC = () => {
         const { count: activeCount } = await supabase
           .from('users')
           .select('*', { count: 'exact', head: true })
-          .neq('username', 'admin')
           .neq('role', 'admin')
           .gt('active_contracts', 0);
 
@@ -535,7 +533,7 @@ export const CommunityPage: React.FC = () => {
                   <div className={`flex flex-col max-w-[75%] ${isSelf ? 'items-end' : 'items-start'} font-sans`}>
                     <span className="text-[8px] font-black text-slate-400 mb-0.5 flex items-center gap-1">
                       @{msg.username}
-                      {msg.username.toLowerCase() === 'admin' && (
+                      {msg.role === 'admin' && (
                         <span className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-1 rounded text-[7px] font-bold">
                           STAFF
                         </span>

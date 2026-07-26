@@ -10,7 +10,8 @@ import {
   ShieldAlert,
   LogOut,
   Globe,
-  X
+  X,
+  RotateCw
 } from 'lucide-react';
 import { UserAccount, Transaction, AppState } from '../../types';
 import { supabase } from '../../supabase';
@@ -30,6 +31,7 @@ const Withdraw = React.lazy(() => import('../../pages/admin/Withdraw'));
 const Settings = React.lazy(() => import('../../pages/admin/Settings'));
 const Contracts = React.lazy(() => import('../../pages/admin/Contracts'));
 const Network = React.lazy(() => import('../../pages/admin/Network'));
+const SpinControl = React.lazy(() => import('../../pages/admin/SpinControl'));
 
 interface AdminLayoutProps {
   accounts: UserAccount[];
@@ -111,7 +113,7 @@ export default function AdminLayout({
       qrisPrintedBy: '93600914',
       qrisPrintVersion: 'v0.0.2026.07.23',
       pricePerUnit: 180000,
-      dailyRewardPercent: 4.0,
+      dailyRewardPercent: 2.0,
       cappingPercent: 250,
       minDeposit: 100000,
       minWithdraw: 100000,
@@ -128,7 +130,7 @@ export default function AdminLayout({
       triggerModal(language === 'id' ? 'Konfigurasi berhasil diperbarui.' : 'Configuration updated successfully.', 'success');
       
       // Update local memory list for real-time consistency
-      const adminUser = accounts.find(acc => acc.username.toLowerCase() === 'admin');
+      const adminUser = accounts.find(acc => acc.role === 'admin') || currentAccount;
       if (adminUser) {
         const updatedAdmin = {
           ...adminUser,
@@ -137,7 +139,7 @@ export default function AdminLayout({
             systemConfig: newConfig
           }
         };
-        setAccounts(prev => prev.map(acc => acc.username.toLowerCase() === 'admin' ? updatedAdmin : acc));
+        setAccounts(prev => prev.map(acc => (acc.role === 'admin' || acc.username === adminUser.username) ? updatedAdmin : acc));
       }
     } else {
       triggerModal(language === 'id' ? '❌ Gagal memperbarui konfigurasi.' : '❌ Failed to update configuration.', 'danger');
@@ -372,6 +374,7 @@ export default function AdminLayout({
   const menuItems = [
     { path: '/admin', id: 'dashboard', label: language === 'id' ? 'Dashboard' : 'Dashboard', icon: LayoutDashboard },
     { path: '/admin/members', id: 'members', label: language === 'id' ? 'Anggota' : 'Users', icon: Users },
+    { path: '/admin/spin', id: 'spin', label: language === 'id' ? 'Kontrol Spin' : 'Spin Control', icon: RotateCw },
     { path: '/admin/deposit', id: 'deposit', label: language === 'id' ? 'Deposit' : 'Deposits', icon: ArrowDownCircle },
     { path: '/admin/withdraw', id: 'withdraw', label: language === 'id' ? 'Penarikan' : 'Withdrawals', icon: ArrowUpCircle },
     { path: '/admin/contracts', id: 'contracts', label: language === 'id' ? 'Kontrak' : 'Contracts', icon: Briefcase },
@@ -456,6 +459,19 @@ export default function AdminLayout({
         <Network
           accounts={accounts}
           language={language}
+        />
+      );
+    }
+    if (currentPath === '/admin/spin') {
+      return (
+        <SpinControl
+          accounts={accounts}
+          setAccounts={setAccounts}
+          language={language}
+          triggerModal={triggerModal}
+          saveAccountToSupabase={saveAccountToSupabase}
+          globalConfig={globalConfig}
+          onSaveGlobalConfig={onSaveGlobalConfig}
         />
       );
     }

@@ -1,6 +1,6 @@
 export interface Transaction {
   id: string;
-  type: 'deposit' | 'withdraw' | 'reward' | 'purchase' | 'referral' | 'rebate' | 'welcome_bonus' | 'bonus' | 'lucky_spin_reward' | 'spin_reward' | 'transfer' | 'referral_spin_bonus';
+  type: 'deposit' | 'withdraw' | 'reward' | 'purchase' | 'referral' | 'rebate' | 'welcome_bonus' | 'bonus' | 'lucky_spin_reward' | 'spin_reward' | 'transfer' | 'referral_spin_bonus' | 'gift_contract';
   amount: number;
   date: number; // timestamp
   description: string;
@@ -10,6 +10,27 @@ export interface Transaction {
   paymentMethod?: string;
   approvedBy?: string | null;
   approvedAt?: number | null;
+}
+
+export interface GlobalConfig {
+  paymentBankName?: string;
+  paymentBankAccount?: string;
+  paymentBankHolder?: string;
+  usdtWalletAddress?: string;
+  pricePerUnit?: number;
+  dailyRewardRate?: number;
+  cappingRate?: number;
+  minDepositAmount?: number;
+  minWithdrawAmount?: number;
+  supportWhatsappLink?: string;
+  supportTelegramLink?: string;
+  runningNoticeText?: string;
+  defaultSpinTickets?: number;
+  referralSpinBonusTickets?: number;
+  spinFeatureEnabled?: boolean;
+  spinWinRateMode?: 'normal' | 'high_win' | 'conservative' | 'jackpot';
+  updatedAt?: number;
+  [key: string]: any;
 }
 
 export interface Holder {
@@ -66,13 +87,13 @@ export interface UserAccount {
     dailyTaskCheck?: boolean;
     telegramId?: string;
     telegramUsername?: string;
+    isSuspended?: boolean;
   };
 }
 
 export function isMemberAccount(acc: UserAccount | null | undefined): boolean {
   if (!acc) return false;
   if (acc.role === 'admin') return false;
-  if (acc.username && acc.username.toLowerCase() === 'admin') return false;
   return true;
 }
 
@@ -80,6 +101,8 @@ export interface AppState {
   mainBalance: number;
   freeSpinBalance?: number;
   bonusSpinBalance?: number;
+  spinTickets?: number;
+  spinCount?: number;
   activeContracts: number;
   totalEarned: number;
   referralEarned: number;

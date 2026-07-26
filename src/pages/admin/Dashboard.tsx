@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { TrendingUp, Users, Wallet as WalletIcon, Briefcase, Clock } from 'lucide-react';
-import { UserAccount, isMemberAccount } from '../../types';
+import { UserAccount, isMemberAccount, CONFIG } from '../../types';
+import MarketTrendsChart from '../../components/admin/MarketTrendsChart';
 
 interface DashboardProps {
   accounts: UserAccount[];
@@ -83,7 +84,7 @@ export default function Dashboard({ accounts, systemConfig, language, onNavigate
           <div className="flex items-center gap-4 bg-slate-900/60 border border-slate-800/80 px-4 py-2.5 rounded-xl shrink-0">
             <div className="text-right">
               <span className="text-[8px] text-slate-500 font-bold block uppercase leading-none">{language === 'id' ? 'RATA-RATA REWARD' : 'EST. DAILY INTEREST'}</span>
-              <span className="text-xs font-black text-emerald-400 font-mono mt-0.5 block">{Number(systemConfig?.dailyRewardPercent || 4).toFixed(1)}% / {language === 'id' ? 'Hari' : 'Day'}</span>
+              <span className="text-xs font-black text-emerald-400 font-mono mt-0.5 block">{Number(systemConfig?.dailyRewardPercent || systemConfig?.dailyRewardRate || (CONFIG.DAILY_REWARD_PERCENT * 100)).toFixed(1)}% / {language === 'id' ? 'Hari' : 'Day'}</span>
             </div>
             <div className="w-px h-8 bg-slate-800" />
             <div className="text-right">
@@ -182,6 +183,9 @@ export default function Dashboard({ accounts, systemConfig, language, onNavigate
           </div>
         </div>
       </div>
+
+      {/* MARKET TRENDS RECHARTS SECTION */}
+      <MarketTrendsChart transactions={stats.allTransactions} language={language} />
 
       {/* MID-DASHBOARD DUAL-COLUMN INSIGHT MODULE */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

@@ -506,7 +506,7 @@ export const SettingsPage: React.FC = () => {
                   </span>
                 </div>
                 <div className="text-[10px] text-slate-400 font-medium">
-                  {currentAccount?.role === 'admin' || currentAccount?.username?.toLowerCase() === 'admin' ? (
+                  {currentAccount?.role === 'admin' ? (
                     <span className="text-amber-400 font-bold flex items-center gap-1">
                       👑 Hak Akses: Administrator (Akses Penuh Admin Control Menu)
                     </span>

@@ -550,7 +550,7 @@ async function processTelegramMenuRequest(chatId: string, callbackData?: string,
   }
 
   // Server-side Role Check
-  const isAdmin = (user.role === 'admin' || String(user.username || '').toLowerCase() === 'admin');
+  const isAdmin = user.role === 'admin';
 
   // Keyboards Definition
   const MEMBER_MAIN_MENU_KEYBOARD = {
@@ -770,7 +770,7 @@ async function processTelegramMenuRequest(chatId: string, callbackData?: string,
         `<b>📊 STATISTIK PERTAMBANGAN</b>\n\n` +
         `👤 <b>User:</b> @${user.username}\n` +
         `⛏️ <b>Kontrak Tambang Aktif:</b> ${user.active_contracts || 0} Unit\n` +
-        `⚡ <b>Estimasi Profit/Hari:</b> Rp ${Number((user.active_contracts || 0) * 15000).toLocaleString('id-ID')}\n\n` +
+        `⚡ <b>Estimasi Profit/Hari:</b> Rp ${Number((user.active_contracts || 0) * 180000 * 0.02).toLocaleString('id-ID')}\n\n` +
         `🏆 <b>Total Hasil Mining:</b> Rp ${Number(user.total_earned || 0).toLocaleString('id-ID')}\n` +
         `👥 <b>Bonus Referral:</b> Rp ${Number(user.referral_earned || 0).toLocaleString('id-ID')}\n` +
         `💸 <b>Komisi Rebate Tim:</b> Rp ${Number(user.rebate_earned || 0).toLocaleString('id-ID')}`;
@@ -869,7 +869,7 @@ async function processTelegramMenuRequest(chatId: string, callbackData?: string,
     case 'admin_sys_stats': {
       const sysData = await getAdminSystemDataFromSupabase();
       const totalUsers = sysData.users.length;
-      const adminCount = sysData.users.filter((u: any) => u.role === 'admin' || u.username === 'admin').length;
+      const adminCount = sysData.users.filter((u: any) => u.role === 'admin').length;
       const memberCount = totalUsers - adminCount;
       const totalMainBalance = sysData.users.reduce((acc: number, u: any) => acc + Number(u.main_balance || 0), 0);
       const totalActiveContracts = sysData.users.reduce((acc: number, u: any) => acc + Number(u.active_contracts || 0), 0);
@@ -978,7 +978,7 @@ async function processTelegramMenuRequest(chatId: string, callbackData?: string,
         `📱 <b>Terhubung Telegram Bot:</b> ${connectedCount} User\n\n` +
         `<b>Daftar Akun Pengguna Terbaru:</b>\n` +
         sysData.users.slice(0, 7).map((u: any, i: number) => {
-          const uRole = u.role === 'admin' || u.username === 'admin' ? '👑 Admin' : '👤 Member';
+          const uRole = u.role === 'admin' ? '👑 Admin' : '👤 Member';
           const tgLinked = (u.telegram_id || u.settings?.telegramId) ? '📱 Linked' : '⚪ Unlinked';
           return `${i + 1}. <b>@${u.username}</b> (${uRole}) - Rp ${Number(u.main_balance || 0).toLocaleString('id-ID')} [${tgLinked}]`;
         }).join('\n');
@@ -1469,9 +1469,33 @@ app.post("/api/telegram/webapp-auth", async (req, res) => {
   }
 });
 
+// Helper for validating admin role on API endpoints
+async function verifyAdminRoleInSupabase(requesterUsername?: string): Promise<boolean> {
+  if (!requesterUsername) return false;
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseKey) return false;
+  try {
+    const res = await fetch(`${supabaseUrl}/rest/v1/users?username=eq.${encodeURIComponent(requesterUsername)}&select=role`, {
+      headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+    });
+    if (!res.ok) return false;
+    const users = await res.json();
+    return Array.isArray(users) && users.length > 0 && users[0].role === 'admin';
+  } catch {
+    return false;
+  }
+}
+
 // Admin: Get all linked Telegram users
 app.get("/api/telegram/admin/linked-users", async (req, res) => {
   try {
+    const requester = (req.query.requester || req.headers['x-requester-username']) as string;
+    const isAdmin = await verifyAdminRoleInSupabase(requester);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: "Akses ditolak: Hanya akun role 'admin' yang diizinkan." });
+    }
+
     const supabaseUrl = process.env.VITE_SUPABASE_URL;
     const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !supabaseKey) {
@@ -1493,7 +1517,12 @@ app.get("/api/telegram/admin/linked-users", async (req, res) => {
 // Admin: Unlink Telegram account
 app.post("/api/telegram/admin/unlink", async (req, res) => {
   try {
-    const { username } = req.body;
+    const { username, requesterUsername } = req.body;
+    const isAdmin = await verifyAdminRoleInSupabase(requesterUsername);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: "Akses ditolak: Hanya akun role 'admin' yang diizinkan." });
+    }
+
     if (!username) return res.status(400).json({ success: false, error: "Username is required." });
 
     const supabaseUrl = process.env.VITE_SUPABASE_URL;
@@ -2306,7 +2335,418 @@ app.post("/api/lucky-spin/spin", async (req, res) => {
 // Admin update spin configuration
 app.post("/api/lucky-spin/admin/config", async (req, res) => {
   try {
-    return res.json({ success: true, message: "Pengaturan Lucky Spin aktif (deduction otomatis berdasarkan nilai reward yang didapat)." });
+    const { requesterUsername } = req.body;
+    const isAdmin = await verifyAdminRoleInSupabase(requesterUsername);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: "Akses ditolak: Hanya akun role 'admin' yang diizinkan." });
+    }
+    return res.json({ success: true, message: "Pengaturan Lucky Spin aktif." });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || String(err) });
+  }
+});
+
+// Admin Lucky Spin: Fetch all spin balances, users, stats, and audit logs
+app.get("/api/lucky-spin/admin/data", async (req, res) => {
+  try {
+    const requesterUsername = typeof req.query.requesterUsername === 'string' ? req.query.requesterUsername.trim() : '';
+    const isAdmin = await verifyAdminRoleInSupabase(requesterUsername);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: "Akses ditolak: Hanya admin yang diizinkan." });
+    }
+
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ success: false, error: "Koneksi Supabase tidak tersedia." });
+    }
+
+    // 1. Fetch all users
+    const usersRes = await fetch(`${supabaseUrl}/rest/v1/users?select=id,username,full_name,email,role,created_at`, {
+      headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+    });
+    const users = usersRes.ok ? await usersRes.json() : [];
+
+    // 2. Fetch all spin_balances
+    const sbRes = await fetch(`${supabaseUrl}/rest/v1/spin_balances?select=*`, {
+      headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+    });
+    const spinBalances = sbRes.ok ? await sbRes.json() : [];
+
+    // 3. Fetch spin-related transactions
+    const txRes = await fetch(`${supabaseUrl}/rest/v1/transactions?or=(type.eq.lucky_spin_reward,type.eq.spin_reward,type.eq.spin_zonk,type.eq.admin_spin_ticket_grant,type.eq.admin_spin_bonus_grant)&order=created_at.desc&limit=300`, {
+      headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+    });
+    const history = txRes.ok ? await txRes.json() : [];
+
+    // Non-admin members list
+    const memberUsers = (users || []).filter((u: any) => u.role !== 'admin' && u.username?.toLowerCase() !== 'admin');
+
+    // Calculate metrics
+    let totalAvailableFreeSpin = 0;
+    let totalBonusBalanceAvailable = 0;
+
+    (spinBalances || []).forEach((sb: any) => {
+      const isMember = memberUsers.some((u: any) => u.username?.toLowerCase() === sb.username?.toLowerCase());
+      if (isMember) {
+        if (sb.type === 'free') totalAvailableFreeSpin += Number(sb.amount) || 0;
+        if (sb.type === 'bonus') totalBonusBalanceAvailable += Number(sb.amount) || 0;
+      }
+    });
+
+    const totalSpinsPlayed = (history || []).filter((t: any) => 
+      t.type === 'lucky_spin_reward' || t.type === 'spin_reward' || t.type === 'spin_zonk'
+    ).length;
+
+    const totalRewardsDistributed = (history || []).reduce((sum: number, t: any) => {
+      if ((t.type === 'lucky_spin_reward' || t.type === 'spin_reward') && Number(t.amount) > 0) {
+        return sum + (Number(t.amount) || 0);
+      }
+      return sum;
+    }, 0);
+
+    return res.json({
+      success: true,
+      users: memberUsers,
+      spinBalances: spinBalances || [],
+      history: history || [],
+      stats: {
+        totalAvailableFreeSpin,
+        totalBonusBalanceAvailable,
+        totalSpinsPlayed,
+        totalRewardsDistributed
+      }
+    });
+  } catch (err: any) {
+    console.error("Error in /api/lucky-spin/admin/data:", err);
+    return res.status(500).json({ success: false, error: err.message || String(err) });
+  }
+});
+
+// Admin Lucky Spin: Adjust user balance (free or bonus) with atomic audit logging
+app.post("/api/lucky-spin/admin/adjust-balance", async (req, res) => {
+  try {
+    const { requesterUsername, targetUserId, targetUsername, type, mode, amount, note } = req.body;
+
+    const isAdmin = await verifyAdminRoleInSupabase(requesterUsername);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: "Akses ditolak: Hanya admin yang diizinkan." });
+    }
+
+    if (!targetUsername || !type || !mode) {
+      return res.status(400).json({ success: false, error: "Parameter tidak lengkap." });
+    }
+
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || (mode === 'add' && numAmount <= 0) || (mode === 'set' && numAmount < 0)) {
+      return res.status(400).json({ success: false, error: "Jumlah nominal tidak valid." });
+    }
+
+    if (type !== 'free' && type !== 'bonus') {
+      return res.status(400).json({ success: false, error: "Tipe saldo spin harus 'free' atau 'bonus'." });
+    }
+
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ success: false, error: "Koneksi Supabase tidak tersedia." });
+    }
+
+    // Get current balance from spin_balances
+    const getRes = await fetch(`${supabaseUrl}/rest/v1/spin_balances?username=ilike.${encodeURIComponent(targetUsername)}&type=eq.${type}`, {
+      headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+    });
+
+    let currentBal = 0;
+    if (getRes.ok) {
+      const rows = await getRes.json();
+      if (Array.isArray(rows) && rows.length > 0) {
+        currentBal = Number(rows[0].amount) || 0;
+      }
+    }
+
+    const newAmount = mode === 'add' ? Math.max(0, currentBal + numAmount) : Math.max(0, numAmount);
+
+    // Upsert spin_balances
+    const upsertRes = await fetch(`${supabaseUrl}/rest/v1/spin_balances?on_conflict=username,type`, {
+      method: 'POST',
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=representation'
+      },
+      body: JSON.stringify([{
+        username: targetUsername,
+        type: type,
+        amount: newAmount,
+        updated_at: new Date().toISOString()
+      }])
+    });
+
+    if (!upsertRes.ok) {
+      const errText = await upsertRes.text();
+      console.warn("Upsert spin_balances via on_conflict failed, trying fallback patch/post:", errText);
+      const checkRes = await fetch(`${supabaseUrl}/rest/v1/spin_balances?username=ilike.${encodeURIComponent(targetUsername)}&type=eq.${type}`, {
+        headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+      });
+      const checkRows = checkRes.ok ? await checkRes.json() : [];
+      if (Array.isArray(checkRows) && checkRows.length > 0) {
+        await fetch(`${supabaseUrl}/rest/v1/spin_balances?username=ilike.${encodeURIComponent(targetUsername)}&type=eq.${type}`, {
+          method: 'PATCH',
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            amount: newAmount,
+            updated_at: new Date().toISOString()
+          })
+        });
+      } else {
+        await fetch(`${supabaseUrl}/rest/v1/spin_balances`, {
+          method: 'POST',
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify([{
+            username: targetUsername,
+            type: type,
+            amount: newAmount,
+            updated_at: new Date().toISOString()
+          }])
+        });
+      }
+    }
+
+    // Sync users table & memoryUserStore
+    try {
+      const userRes = await fetch(`${supabaseUrl}/rest/v1/users?username=ilike.${encodeURIComponent(targetUsername)}`, {
+        headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+      });
+      if (userRes.ok) {
+        const uRows = await userRes.json();
+        if (Array.isArray(uRows) && uRows.length > 0) {
+          const u = uRows[0];
+          const settings = typeof u.settings === 'object' && u.settings !== null ? u.settings : {};
+          const updatedSettings = {
+            ...settings,
+            ...(type === 'free' ? { freeSpinBalance: newAmount } : { bonusSpinBalance: newAmount, rewardSpinWallet: newAmount })
+          };
+          const updateBody: any = {
+            settings: updatedSettings,
+            ...(type === 'free' ? { free_spin_balance: newAmount } : { bonus_spin_balance: newAmount })
+          };
+
+          await fetch(`${supabaseUrl}/rest/v1/users?username=ilike.${encodeURIComponent(targetUsername)}`, {
+            method: 'PATCH',
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updateBody)
+          });
+
+          const memU = memoryUserStore.get(targetUsername);
+          if (memU) {
+            memU.settings = { ...(memU.settings || {}), ...updatedSettings };
+            if (type === 'free') memU.free_spin_balance = newAmount;
+            if (type === 'bonus') memU.bonus_spin_balance = newAmount;
+            memoryUserStore.set(targetUsername, memU);
+          }
+        }
+      }
+    } catch (uErr) {
+      console.warn("Failed updating users table for spin balance adjust:", uErr);
+    }
+
+    // Create Audit Log in transactions table
+    const txId = `SPN-ADM-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    const txType = type === 'free' ? 'admin_spin_ticket_grant' : 'admin_spin_bonus_grant';
+    const txDesc = `[AUDIT ADMIN] Admin @${requesterUsername} ${mode === 'add' ? `menambahkan +${numAmount}` : `menyetel menjadi ${newAmount}`} ${type === 'free' ? 'Saldo Spin' : 'Bonus Spin'} [User ID: ${targetUserId || 'N/A'}]. ${note ? `Catatan: ${note}` : ''}`;
+
+    await fetch(`${supabaseUrl}/rest/v1/transactions`, {
+      method: 'POST',
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify([{
+        id: txId,
+        username: targetUsername,
+        type: txType,
+        amount: numAmount,
+        description: txDesc,
+        approved_by: requesterUsername,
+        status: 'approved',
+        created_at: new Date().toISOString()
+      }])
+    }).catch(e => console.warn("Transaction audit log error:", e));
+
+    return res.json({
+      success: true,
+      targetUsername,
+      targetUserId,
+      type,
+      mode,
+      oldAmount: currentBal,
+      newAmount,
+      txId
+    });
+  } catch (err: any) {
+    console.error("Error in /api/lucky-spin/admin/adjust-balance:", err);
+    return res.status(500).json({ success: false, error: err.message || String(err) });
+  }
+});
+
+// Admin Lucky Spin: Atomic Mass Gift spin tickets to all members
+app.post("/api/lucky-spin/admin/mass-gift", async (req, res) => {
+  try {
+    const { requesterUsername, type, amount, note } = req.body;
+
+    const isAdmin = await verifyAdminRoleInSupabase(requesterUsername);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: "Akses ditolak: Hanya admin yang diizinkan." });
+    }
+
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, error: "Jumlah nominal massal tidak valid (minimal 1)." });
+    }
+
+    const targetType = type === 'bonus' ? 'bonus' : 'free';
+
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ success: false, error: "Koneksi Supabase tidak tersedia." });
+    }
+
+    // Fetch all active member users (role != 'admin')
+    const usersRes = await fetch(`${supabaseUrl}/rest/v1/users?select=id,username,role`, {
+      headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+    });
+    if (!usersRes.ok) {
+      return res.status(500).json({ success: false, error: "Gagal mengambil daftar pengguna dari database." });
+    }
+    const allUsers = await usersRes.json();
+    const memberUsers = (allUsers || []).filter((u: any) => u.role !== 'admin' && u.username?.toLowerCase() !== 'admin');
+
+    if (memberUsers.length === 0) {
+      return res.status(400).json({ success: false, error: "Tidak ada member aktif untuk dibagikan tiket." });
+    }
+
+    // Fetch existing spin_balances for targetType
+    const sbRes = await fetch(`${supabaseUrl}/rest/v1/spin_balances?type=eq.${targetType}&select=username,amount`, {
+      headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+    });
+    const sbRows = sbRes.ok ? await sbRes.json() : [];
+    const sbMap = new Map<string, number>();
+    (sbRows || []).forEach((row: any) => {
+      if (row.username) sbMap.set(row.username.toLowerCase(), Number(row.amount) || 0);
+    });
+
+    // Build atomic bulk payloads
+    const nowIso = new Date().toISOString();
+    const sbUpsertPayload: any[] = [];
+    const txInsertPayload: any[] = [];
+
+    memberUsers.forEach((u: any) => {
+      const username = u.username;
+      const currentAmt = sbMap.get(username.toLowerCase()) ?? 0;
+      const newAmt = currentAmt + numAmount;
+
+      sbUpsertPayload.push({
+        username: username,
+        type: targetType,
+        amount: newAmt,
+        updated_at: nowIso
+      });
+
+      const txId = `SPN-MASS-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+      txInsertPayload.push({
+        id: txId,
+        username: username,
+        type: targetType === 'free' ? 'admin_spin_ticket_grant' : 'admin_spin_bonus_grant',
+        amount: numAmount,
+        description: `[MASS GIFT ADMIN] Admin @${requesterUsername} membagikan +${numAmount} ${targetType === 'free' ? 'Tiket/Saldo Spin' : 'Bonus Spin'} ke seluruh member. ${note ? `Catatan: ${note}` : ''}`,
+        approved_by: requesterUsername,
+        status: 'approved',
+        created_at: nowIso
+      });
+    });
+
+    // Execute atomic bulk upsert to spin_balances
+    const upsertRes = await fetch(`${supabaseUrl}/rest/v1/spin_balances?on_conflict=username,type`, {
+      method: 'POST',
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify(sbUpsertPayload)
+    });
+
+    if (!upsertRes.ok) {
+      const errText = await upsertRes.text();
+      console.error("Mass gift upsert failed:", errText);
+      return res.status(500).json({ success: false, error: "Gagal memproses pembagian massal di database." });
+    }
+
+    // Insert audit transactions in bulk
+    await fetch(`${supabaseUrl}/rest/v1/transactions`, {
+      method: 'POST',
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(txInsertPayload)
+    }).catch(e => console.warn("Mass gift transaction audit error:", e));
+
+    return res.json({
+      success: true,
+      recipientCount: memberUsers.length,
+      amountPerUser: numAmount,
+      totalDistributed: memberUsers.length * numAmount
+    });
+  } catch (err: any) {
+    console.error("Error in /api/lucky-spin/admin/mass-gift:", err);
+    return res.status(500).json({ success: false, error: err.message || String(err) });
+  }
+});
+
+// Admin Lucky Spin: Fetch history directly from database transactions table
+app.get("/api/lucky-spin/admin/history", async (req, res) => {
+  try {
+    const requesterUsername = typeof req.query.requesterUsername === 'string' ? req.query.requesterUsername.trim() : '';
+    const isAdmin = await verifyAdminRoleInSupabase(requesterUsername);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: "Akses ditolak: Hanya admin yang diizinkan." });
+    }
+
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ success: false, error: "Koneksi Supabase tidak tersedia." });
+    }
+
+    const txRes = await fetch(`${supabaseUrl}/rest/v1/transactions?or=(type.eq.lucky_spin_reward,type.eq.spin_reward,type.eq.spin_zonk,type.eq.admin_spin_ticket_grant,type.eq.admin_spin_bonus_grant)&order=created_at.desc&limit=300`, {
+      headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+    });
+
+    const history = txRes.ok ? await txRes.json() : [];
+    return res.json({ success: true, history: history || [] });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || String(err) });
   }

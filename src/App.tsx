@@ -539,7 +539,7 @@ export default function App() {
           }
         } else if (authUser.email?.toLowerCase() === 'admin@grockgold.com') {
           loggedInUsername = 'admin';
-          matchedAccount = supabaseAccounts.find(a => a.username.toLowerCase() === 'admin') || null;
+          matchedAccount = supabaseAccounts.find(a => a.role === 'admin') || null;
         }
       }
 
@@ -606,8 +606,8 @@ export default function App() {
             localStorage.setItem('grockgold_lang', found.settings.language);
             setLanguage(found.settings.language);
           }
-          if (found.username.toLowerCase() === 'admin') {
-            if (window.location.pathname === '/admin' || window.location.pathname === '/admin/') {
+          if (found.role === 'admin' || found.username.toLowerCase() === 'admin') {
+            if (window.location.pathname.startsWith('/admin')) {
               setCurrentTab('admin');
             }
           }
@@ -708,9 +708,8 @@ export default function App() {
       
       const payloadUsername = payload.new?.username || payload.old?.username || payload.new?.invited_by;
       if (
-        loggedInUsername.toLowerCase() === 'admin' ||
+        currentAccount?.role === 'admin' ||
         !payloadUsername ||
-        payloadUsername.toLowerCase() === 'admin' ||
         payloadUsername.toLowerCase() === loggedInUsername.toLowerCase()
       ) {
         debouncedSync();
@@ -1743,7 +1742,7 @@ export default function App() {
               }
             });
 
-            if (signUpData?.user && !signUpData.user.email_confirmed_at && found.username.toLowerCase() !== 'admin') {
+            if (signUpData?.user && !signUpData.user.email_confirmed_at && found.role !== 'admin') {
               console.warn('Supabase Auth signUp created unconfirmed user - bypassing check.');
               localStorage.setItem('grockgold_bypass_verification_v4', 'true');
             }
@@ -1762,7 +1761,7 @@ export default function App() {
 
       // Check if user has confirmed email (skip check for Admin treasury account)
       const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (user && found.username.toLowerCase() !== 'admin' && user.email?.toLowerCase() !== 'admin@grockgold.com') {
+      if (user && found.role !== 'admin' && user.email?.toLowerCase() !== 'admin@grockgold.com') {
         if (!user.email_confirmed_at) {
           console.warn('User email is unconfirmed - bypassing check.');
           localStorage.setItem('grockgold_bypass_verification_v4', 'true');
@@ -1789,7 +1788,7 @@ export default function App() {
     }
 
     triggerModal(t.successLogin, 'success');
-    if (found.username.toLowerCase() === 'admin') {
+    if (found.role === 'admin' || found.username.toLowerCase() === 'admin') {
       window.history.pushState(null, '', '/admin');
       window.dispatchEvent(new Event('popstate'));
       setCurrentTab('admin');
@@ -3423,7 +3422,7 @@ export default function App() {
       {/* RENDER FULL-SCREEN ADMIN CONSOLE IF LOGGED IN AS ADMIN OR ON /ADMIN PATH, ELSE STANDARD USER INTERFACE */}
       {(currentPath.startsWith('/admin') || currentTab === 'admin') ? (
         <div className="w-full min-h-screen bg-slate-950 flex flex-col items-center justify-center">
-          {state.isLoggedIn && currentAccount?.username?.toLowerCase() === 'admin' ? (
+          {state.isLoggedIn && currentAccount?.role === 'admin' ? (
             <div className="w-full min-h-screen bg-slate-950">
               <Suspense fallback={<TabLoadingFallback />}>
                 <AdminLayout
@@ -3667,7 +3666,7 @@ export default function App() {
                       <div className="bg-[#0c0822]/40 border border-white/5 rounded-2xl p-1.5 space-y-1">
                         {[
                           { id: 'community', label: language === 'id' ? 'Komunitas' : 'Community', icon: Users },
-                          ...(state.username.toLowerCase() !== 'admin' ? [{ id: 'referral', label: t.referral, icon: UserPlus }] : []),
+                          ...(currentAccount?.role !== 'admin' ? [{ id: 'referral', label: t.referral, icon: UserPlus }] : []),
                           { id: 'transactions', label: language === 'id' ? 'Riwayat Transaksi' : 'Transactions', icon: History },
                           { id: 'errorhistory', label: language === 'id' ? 'Riwayat Error' : 'Error History', icon: AlertTriangle },
                         ].map((item) => {
@@ -3715,7 +3714,7 @@ export default function App() {
                             { id: 'help', label: language === 'id' ? 'Bantuan' : 'Help', icon: HelpCircle },
                             { id: 'about', label: language === 'id' ? 'Tentang Kami' : 'About Us', icon: Info },
                           ];
-                          if (currentAccount?.username?.toLowerCase() === 'admin') {
+                          if (currentAccount?.role === 'admin') {
                             items.push({ 
                               id: 'admin', 
                               label: 'Admin Panel', 

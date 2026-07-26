@@ -117,13 +117,13 @@ const ProfilePage: React.FC = () => {
         </div>
 
         <div className="text-lg font-black text-white uppercase font-sans">{currentAccount ? currentAccount.fullName : state.username}</div>
-        {state.username.toLowerCase() !== 'admin' && (
+        {currentAccount?.role !== 'admin' && (
           <div className="text-xs text-purple-300 font-mono mt-0.5">ID: {currentAccount ? currentAccount.referralCode : 'GGM-0001'}</div>
         )}
       </div>
 
       {/* Referral Box Section */}
-      {state.username.toLowerCase() !== 'admin' && (
+      {currentAccount?.role !== 'admin' && (
         <div className="bg-gradient-to-br from-[#0f0620] to-[#080312] border border-purple-500/20 rounded-3xl p-5 shadow-xl relative overflow-hidden space-y-4">
           <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full blur-xl pointer-events-none" />
           
@@ -238,7 +238,7 @@ const ProfilePage: React.FC = () => {
               <span className="text-slate-500 font-sans">{language === 'id' ? 'No. Handphone' : 'Phone Number'}</span>
               <span className="text-white">{currentAccount ? currentAccount.phone : '+6281234567890'}</span>
             </div>
-            {state.username.toLowerCase() !== 'admin' && (
+            {currentAccount?.role !== 'admin' && (
               <>
                 <div className="flex justify-between py-1 border-b border-white/5">
                   <span className="text-slate-500 font-sans">Uplink Sponsor</span>

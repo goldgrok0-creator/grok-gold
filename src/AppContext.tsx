@@ -344,9 +344,8 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       
       const payloadUsername = payload.new?.username || payload.old?.username || payload.new?.invited_by;
       if (
-        loggedInUsername.toLowerCase() === 'admin' ||
+        currentAccount?.role === 'admin' ||
         !payloadUsername ||
-        payloadUsername.toLowerCase() === 'admin' ||
         payloadUsername.toLowerCase() === loggedInUsername.toLowerCase()
       ) {
         debouncedSync();

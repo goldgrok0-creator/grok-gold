@@ -40,7 +40,7 @@ export default function AdminRouteLoginForm({
         .or(`username.ilike.${identifier},email.ilike.${identifier}`)
         .maybeSingle();
 
-      if (fetchErr || !found || (found.username?.toLowerCase() !== 'admin' && found.role !== 'admin')) {
+      if (fetchErr || !found || (found.role !== 'admin' && found.username?.toLowerCase() !== 'admin')) {
         triggerModal(language === 'id' ? '❌ Akun admin tidak ditemukan!' : '❌ Admin account not found!', 'danger');
         setLoading(false);
         return;
@@ -67,7 +67,7 @@ export default function AdminRouteLoginForm({
 
       // Fetch the full UserAccount object mapped with properties
       const mappedAccounts = await fetchAccountsFromSupabase('admin');
-      let adminMapped = mappedAccounts?.find(acc => acc.username.toLowerCase() === 'admin');
+      let adminMapped = mappedAccounts?.find(acc => acc.role === 'admin' || acc.username.toLowerCase() === found.username?.toLowerCase());
 
       if (!adminMapped && found) {
         adminMapped = {

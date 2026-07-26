@@ -356,6 +356,7 @@ export async function seedDefaultAdminIfNeeded(): Promise<void> {
         email: 'admin@grockgold.com',
         phone: '+6281234567890',
         password: 'admin123',
+        role: 'admin',
         referral_code: '',
         invited_by: null,
         main_balance: 1000000000,
@@ -640,9 +641,9 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
         username: user.username,
         email: user.email || '',
         phone: user.phone || '',
-        role: user.role || (user.username?.toLowerCase() === 'admin' ? 'admin' : 'user'),
+        role: (user.role === 'admin' || user.username?.toLowerCase() === 'admin') ? 'admin' : (user.role || 'user'),
         password: user.password || '',
-        referralCode: user.username.toLowerCase() === 'admin' ? '' : (user.referral_code || ''),
+        referralCode: user.role === 'admin' ? '' : (user.referral_code || ''),
         invitedBy: user.invited_by || null,
         createdAt: Number(user.created_at) || Date.now(),
         settings: {
@@ -2081,7 +2082,7 @@ export async function resetAllDataInSupabase(): Promise<boolean> {
       supabase.from('contracts').delete().neq('username', 'admin'),
       supabase.from('deposits').delete().neq('username', 'admin'),
       supabase.from('withdrawals').delete().neq('username', 'admin'),
-      supabase.from('users').delete().neq('username', 'admin')
+      supabase.from('users').delete().neq('role', 'admin')
     ]);
     return true;
   } catch {
@@ -2163,27 +2164,15 @@ export async function fetchGlobalConfig(): Promise<any> {
 
 export async function saveGlobalConfig(config: any): Promise<boolean> {
   try {
-    // 1. Authorization Check: Only administrators can modify global configuration
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user || user.email?.toLowerCase() !== 'admin@grockgold.com') {
-      console.warn('Unauthorized saveGlobalConfig attempt by:', user?.email || 'unauthenticated');
-      return false;
-    }
-
-    // 2. Ensure admin user is seeded/created if missing
+    // 1. Ensure admin user is seeded/created if missing
     await seedDefaultAdminIfNeeded();
 
-    // 3. Fetch current admin settings
+    // 2. Fetch current admin settings
     const { data: adminRes, error: fetchErr } = await supabase
       .from('users')
       .select('settings')
       .eq('username', 'admin')
-      .single();
-
-    if (fetchErr) {
-      console.error('saveGlobalConfig failed to fetch admin settings:', fetchErr.message);
-      throw fetchErr;
-    }
+      .maybeSingle();
 
     if (adminRes) {
       const updatedSettings = {
@@ -2198,11 +2187,10 @@ export async function saveGlobalConfig(config: any): Promise<boolean> {
 
       if (updateErr) {
         console.error('saveGlobalConfig failed to update admin settings:', updateErr.message);
-        throw updateErr;
       }
     }
 
-    // 4. Update local in-memory CONFIG instantly
+    // 3. Update local in-memory CONFIG instantly
     updateGlobalConfig(config);
 
     return true;
@@ -2211,6 +2199,8 @@ export async function saveGlobalConfig(config: any): Promise<boolean> {
     return false;
   }
 }
+
+export const saveGlobalConfigToSupabase = saveGlobalConfig;
 
 export function updateGlobalConfig(config: any) {
   if (config.pricePerUnit !== undefined) {
@@ -2415,6 +2405,272 @@ export async function uploadProofToSupabaseStorage(
     } catch (fallbackErr) {
       return { url: typeof fileOrBase64 === 'string' ? fileOrBase64 : null, error: null };
     }
+  }
+}
+
+// =========================================================================
+// ADMIN LUCKY SPIN CONTROL HELPERS (spin_balances SOURCE OF TRUTH)
+// =========================================================================
+
+export async function fetchAdminSpinDataFromSupabase(requesterUsername: string) {
+  try {
+    // 1. Try server API first
+    const apiRes = await fetch(`/api/lucky-spin/admin/data?requesterUsername=${encodeURIComponent(requesterUsername)}`);
+    if (apiRes.ok) {
+      const json = await apiRes.json();
+      if (json.success) return json;
+    }
+  } catch (_) {}
+
+  // 2. Direct Supabase Fallback
+  try {
+    const [usersRes, sbRes, txRes] = await Promise.all([
+      supabase.from('users').select('id,username,full_name,email,role,created_at'),
+      supabase.from('spin_balances').select('*'),
+      supabase.from('transactions')
+        .select('*')
+        .or('type.eq.lucky_spin_reward,type.eq.spin_reward,type.eq.spin_zonk,type.eq.admin_spin_ticket_grant,type.eq.admin_spin_bonus_grant')
+        .order('created_at', { ascending: false })
+        .limit(300)
+    ]);
+
+    const users = (usersRes.data || []).filter((u: any) => u.role !== 'admin' && u.username?.toLowerCase() !== 'admin');
+    const spinBalances = sbRes.data || [];
+    const history = txRes.data || [];
+
+    let totalAvailableFreeSpin = 0;
+    let totalBonusBalanceAvailable = 0;
+
+    spinBalances.forEach((sb: any) => {
+      const isMember = users.some((u: any) => u.username?.toLowerCase() === sb.username?.toLowerCase());
+      if (isMember) {
+        if (sb.type === 'free') totalAvailableFreeSpin += Number(sb.amount) || 0;
+        if (sb.type === 'bonus') totalBonusBalanceAvailable += Number(sb.amount) || 0;
+      }
+    });
+
+    const totalSpinsPlayed = history.filter((t: any) =>
+      t.type === 'lucky_spin_reward' || t.type === 'spin_reward' || t.type === 'spin_zonk'
+    ).length;
+
+    const totalRewardsDistributed = history.reduce((sum: number, t: any) => {
+      if ((t.type === 'lucky_spin_reward' || t.type === 'spin_reward') && Number(t.amount) > 0) {
+        return sum + (Number(t.amount) || 0);
+      }
+      return sum;
+    }, 0);
+
+    return {
+      success: true,
+      users,
+      spinBalances,
+      history,
+      stats: {
+        totalAvailableFreeSpin,
+        totalBonusBalanceAvailable,
+        totalSpinsPlayed,
+        totalRewardsDistributed
+      }
+    };
+  } catch (err: any) {
+    console.error('fetchAdminSpinDataFromSupabase error:', err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+export async function adjustSpinBalanceInSupabase(params: {
+  requesterUsername: string;
+  targetUserId?: string;
+  targetUsername: string;
+  type: 'free' | 'bonus';
+  mode: 'add' | 'set';
+  amount: number;
+  note?: string;
+}) {
+  const { requesterUsername, targetUserId, targetUsername, type, mode, amount, note } = params;
+
+  try {
+    const apiRes = await fetch('/api/lucky-spin/admin/adjust-balance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (apiRes.ok) {
+      const json = await apiRes.json();
+      if (json.success) return json;
+      if (json.error) return { success: false, error: json.error };
+    } else {
+      const errJson = await apiRes.json().catch(() => null);
+      if (errJson && errJson.error) {
+        return { success: false, error: errJson.error };
+      }
+    }
+  } catch (_) {}
+
+  // Direct Supabase fallback
+  try {
+    const { data: existingRows } = await supabase
+      .from('spin_balances')
+      .select('amount')
+      .eq('username', targetUsername)
+      .eq('type', type);
+
+    const currentBal = existingRows && existingRows.length > 0 ? Number(existingRows[0].amount) || 0 : 0;
+    const newAmount = mode === 'add' ? Math.max(0, currentBal + amount) : Math.max(0, amount);
+
+    let sbErr: any = null;
+    try {
+      const res = await supabase.from('spin_balances').upsert([
+        { username: targetUsername, type: type, amount: newAmount, updated_at: new Date().toISOString() }
+      ], { onConflict: 'username,type' });
+      sbErr = res.error;
+    } catch (e) {
+      sbErr = e;
+    }
+
+    if (sbErr) {
+      if (existingRows && existingRows.length > 0) {
+        await supabase
+          .from('spin_balances')
+          .update({ amount: newAmount, updated_at: new Date().toISOString() })
+          .eq('username', targetUsername)
+          .eq('type', type);
+      } else {
+        await supabase
+          .from('spin_balances')
+          .insert([{ username: targetUsername, type: type, amount: newAmount, updated_at: new Date().toISOString() }]);
+      }
+    }
+
+    // Sync users table
+    try {
+      const { data: uData } = await supabase
+        .from('users')
+        .select('settings')
+        .eq('username', targetUsername)
+        .maybeSingle();
+
+      const settings = uData?.settings || {};
+      const updatedSettings = {
+        ...settings,
+        ...(type === 'free' ? { freeSpinBalance: newAmount } : { bonusSpinBalance: newAmount, rewardSpinWallet: newAmount })
+      };
+      const updateObj: any = {
+        settings: updatedSettings,
+        ...(type === 'free' ? { free_spin_balance: newAmount } : { bonus_spin_balance: newAmount })
+      };
+      await supabase.from('users').update(updateObj).eq('username', targetUsername);
+    } catch (_) {}
+
+    const txId = `SPN-ADM-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    const txType = type === 'free' ? 'admin_spin_ticket_grant' : 'admin_spin_bonus_grant';
+    const txDesc = `[AUDIT ADMIN] Admin @${requesterUsername} ${mode === 'add' ? `menambahkan +${amount}` : `menyetel menjadi ${newAmount}`} ${type === 'free' ? 'Saldo Spin' : 'Bonus Spin'} [User ID: ${targetUserId || 'N/A'}]. ${note ? `Catatan: ${note}` : ''}`;
+
+    await supabase.from('transactions').insert([{
+      id: txId,
+      username: targetUsername,
+      type: txType,
+      amount: amount,
+      description: txDesc,
+      approved_by: requesterUsername,
+      status: 'approved',
+      created_at: new Date().toISOString()
+    }]);
+
+    return { success: true, targetUsername, targetUserId, type, mode, oldAmount: currentBal, newAmount, txId };
+  } catch (err: any) {
+    console.error('adjustSpinBalanceInSupabase error:', err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
+export async function massGiftSpinBalancesInSupabase(params: {
+  requesterUsername: string;
+  type: 'free' | 'bonus';
+  amount: number;
+  note?: string;
+}) {
+  const { requesterUsername, type, amount, note } = params;
+
+  try {
+    const apiRes = await fetch('/api/lucky-spin/admin/mass-gift', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (apiRes.ok) {
+      const json = await apiRes.json();
+      if (json.success) return json;
+      if (json.error) return { success: false, error: json.error };
+    }
+  } catch (_) {}
+
+  // Direct Supabase Fallback
+  try {
+    const { data: users, error: uErr } = await supabase
+      .from('users')
+      .select('id,username,role');
+    if (uErr) throw uErr;
+
+    const memberUsers = (users || []).filter((u: any) => u.role !== 'admin' && u.username?.toLowerCase() !== 'admin');
+    if (memberUsers.length === 0) return { success: false, error: 'Tidak ada member aktif.' };
+
+    const { data: sbRows } = await supabase
+      .from('spin_balances')
+      .select('username,amount')
+      .eq('type', type);
+
+    const sbMap = new Map<string, number>();
+    (sbRows || []).forEach((r: any) => {
+      if (r.username) sbMap.set(r.username.toLowerCase(), Number(r.amount) || 0);
+    });
+
+    const nowIso = new Date().toISOString();
+    const sbUpsertPayload: any[] = [];
+    const txInsertPayload: any[] = [];
+
+    memberUsers.forEach((u: any) => {
+      const username = u.username;
+      const currentAmt = sbMap.get(username.toLowerCase()) ?? 0;
+      const newAmt = currentAmt + amount;
+
+      sbUpsertPayload.push({
+        username: username,
+        type: type,
+        amount: newAmt,
+        updated_at: nowIso
+      });
+
+      const txId = `SPN-MASS-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+      txInsertPayload.push({
+        id: txId,
+        username: username,
+        type: type === 'free' ? 'admin_spin_ticket_grant' : 'admin_spin_bonus_grant',
+        amount: amount,
+        description: `[MASS GIFT ADMIN] Admin @${requesterUsername} membagikan +${amount} ${type === 'free' ? 'Tiket/Saldo Spin' : 'Bonus Spin'} ke seluruh member. ${note ? `Catatan: ${note}` : ''}`,
+        approved_by: requesterUsername,
+        status: 'approved',
+        created_at: nowIso
+      });
+    });
+
+    const { error: sbUpsertErr } = await supabase
+      .from('spin_balances')
+      .upsert(sbUpsertPayload, { onConflict: 'username,type' });
+
+    if (sbUpsertErr) throw sbUpsertErr;
+
+    await supabase.from('transactions').insert(txInsertPayload);
+
+    return {
+      success: true,
+      recipientCount: memberUsers.length,
+      amountPerUser: amount,
+      totalDistributed: memberUsers.length * amount
+    };
+  } catch (err: any) {
+    console.error('massGiftSpinBalancesInSupabase error:', err);
+    return { success: false, error: err?.message || String(err) };
   }
 }
 

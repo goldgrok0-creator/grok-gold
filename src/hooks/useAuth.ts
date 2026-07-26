@@ -177,7 +177,7 @@ export const useAuth = () => {
       setLanguage(finalAccount.settings.language);
     }
 
-    if (finalAccount.username.toLowerCase() === 'admin') {
+    if (finalAccount.role === 'admin' || finalAccount.username.toLowerCase() === 'admin') {
       window.history.pushState(null, '', '/admin');
       window.dispatchEvent(new Event('popstate'));
       setCurrentTab('admin');

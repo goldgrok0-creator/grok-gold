@@ -26,9 +26,11 @@ import {
   CheckCircle,
   XCircle,
   Gift,
-  LogOut
+  LogOut,
+  RotateCw
 } from 'lucide-react';
 import { UserAccount, Transaction, AppState, isMemberAccount } from '../types';
+import SpinControl from '../pages/admin/SpinControl';
 import {
   approveDepositInSupabase,
   rejectDepositInSupabase,
@@ -63,7 +65,7 @@ export default function AdminLayout({
   globalConfig,
   onSaveGlobalConfig
 }: AdminLayoutProps) {
-  const [activeAdminTab, setActiveAdminTab] = useState<'dashboard' | 'users' | 'deposits' | 'withdrawals' | 'contracts' | 'wallet' | 'network'>('dashboard');
+  const [activeAdminTab, setActiveAdminTab] = useState<'dashboard' | 'users' | 'spin' | 'deposits' | 'withdrawals' | 'contracts' | 'wallet' | 'network'>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   
   // Edit user state
@@ -83,7 +85,7 @@ export default function AdminLayout({
 
   // --- DERIVE ADMIN SETTINGS PERSISTED IN ADMIN ACCOUNT ---
   const adminAccount = useMemo(() => {
-    return accounts.find(acc => acc.username.toLowerCase() === 'admin') || currentAccount;
+    return accounts.find(acc => acc.role === 'admin') || currentAccount;
   }, [accounts, currentAccount]);
 
   const systemConfig = useMemo(() => {
@@ -115,7 +117,7 @@ export default function AdminLayout({
       triggerModal(language === 'id' ? 'Konfigurasi berhasil diperbarui.' : 'Configuration updated successfully.', 'success');
       
       // Update local memory list for real-time consistency
-      const adminUser = accounts.find(acc => acc.username.toLowerCase() === 'admin');
+      const adminUser = accounts.find(acc => acc.role === 'admin') || currentAccount;
       if (adminUser) {
         const updatedAdmin = {
           ...adminUser,
@@ -124,7 +126,7 @@ export default function AdminLayout({
             systemConfig: newConfig
           }
         };
-        setAccounts(prev => prev.map(acc => acc.username.toLowerCase() === 'admin' ? updatedAdmin : acc));
+        setAccounts(prev => prev.map(acc => (acc.role === 'admin' || acc.username === adminUser.username) ? updatedAdmin : acc));
       }
     } else {
       triggerModal(language === 'id' ? '❌ Gagal memperbarui konfigurasi.' : '❌ Failed to update configuration.', 'danger');
@@ -394,6 +396,7 @@ export default function AdminLayout({
         {[
           { id: 'dashboard', label: language === 'id' ? 'Dashboard' : 'Dashboard', icon: LayoutDashboard },
           { id: 'users', label: language === 'id' ? 'Anggota' : 'Users', icon: Users },
+          { id: 'spin', label: language === 'id' ? 'Kontrol Spin' : 'Spin Control', icon: RotateCw },
           { id: 'deposits', label: language === 'id' ? 'Deposit' : 'Deposits', icon: ArrowDownCircle },
           { id: 'withdrawals', label: language === 'id' ? 'Penarikan' : 'Withdrawals', icon: ArrowUpCircle },
           { id: 'contracts', label: language === 'id' ? 'Kontrak' : 'Contracts', icon: Briefcase },
@@ -1027,7 +1030,7 @@ export default function AdminLayout({
                 >
                   <option value="">-- Choose User --</option>
                   {accounts
-                    .filter(acc => acc.username.toLowerCase() !== 'admin')
+                    .filter(isMemberAccount)
                     .map(acc => (
                       <option key={acc.username} value={acc.username}>
                         {acc.username} ({acc.fullName})
@@ -1229,6 +1232,19 @@ export default function AdminLayout({
               )
             )}
           </div>
+        )}
+
+        {/* ==================== SPIN CONTROL ==================== */}
+        {activeAdminTab === 'spin' && (
+          <SpinControl
+            accounts={accounts}
+            setAccounts={setAccounts}
+            language={language}
+            triggerModal={triggerModal}
+            saveAccountToSupabase={saveAccountToSupabase}
+            globalConfig={globalConfig}
+            onSaveGlobalConfig={onSaveGlobalConfig}
+          />
         )}
 
 
