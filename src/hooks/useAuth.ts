@@ -157,6 +157,7 @@ export const useAuth = () => {
     setCurrentAccount(finalAccount);
 
     localStorage.setItem('grockgold_logged_in_username_v4', userUsername);
+    sessionStorage.removeItem(`grockgold_tg_popup_shown_${userUsername}`);
 
     triggerModal(
       language === 'id'

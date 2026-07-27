@@ -126,7 +126,14 @@ const WalletPage: React.FC = () => {
       rebateReward: metrics.rebateEarnings,
       bonusReward: metrics.bonusIncome,
     };
-  }, [state]);
+  }, [
+    state?.activeContracts,
+    state?.transactions,
+    state?.referralEarned,
+    state?.rebateEarned,
+    state?.bonusSpinBalance,
+    state?.welcomeBonusClaimed,
+  ]);
 
   const bonusProgressRatio = CONFIG.REQUIRED_HOLDERS > 0 
     ? Math.min(100, (networkActiveCount / CONFIG.REQUIRED_HOLDERS) * 100) 

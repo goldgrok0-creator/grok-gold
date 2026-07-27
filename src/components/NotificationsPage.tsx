@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { ChevronLeft, Bell } from 'lucide-react';
+import { TelegramLinkingBanner } from './TelegramLinkingBanner';
 
 interface NotificationsPageProps {
   language: 'id' | 'en';
@@ -55,6 +56,9 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
           {language === 'id' ? 'Notifikasi Sistem' : 'System Notifications'}
         </h2>
       </div>
+
+      {/* TELEGRAM OFFICIAL BOT LINKING BANNER */}
+      <TelegramLinkingBanner />
 
       <div className="bg-[#0e061c] border border-white/5 rounded-3xl p-5 shadow-xl space-y-4">
         <div className="flex justify-between items-center border-b border-white/5 pb-3">

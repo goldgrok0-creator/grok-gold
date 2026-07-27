@@ -43,7 +43,14 @@ export const WalletPage: React.FC<WalletPageProps> = ({
   >(null);
 
   // Calculations via single source of truth capping utility
-  const cappingMetrics = calculateCappingEarnings(state);
+  const cappingMetrics = React.useMemo(() => calculateCappingEarnings(state), [
+    state?.activeContracts,
+    state?.transactions,
+    state?.referralEarned,
+    state?.rebateEarned,
+    state?.bonusSpinBalance,
+    state?.welcomeBonusClaimed,
+  ]);
   const {
     activeContracts: activeContractsCount,
     totalModalAktif: activeContractValue,

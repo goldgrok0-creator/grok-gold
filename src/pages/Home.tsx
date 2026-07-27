@@ -29,7 +29,14 @@ const Home: React.FC<HomeProps> = ({ setHarvestModalOpen }) => {
   const { claimDailyReward } = useContract();
   const t = TRANSLATIONS[language];
 
-  const cappingMetrics = calculateCappingEarnings(state);
+  const cappingMetrics = React.useMemo(() => calculateCappingEarnings(state), [
+    state?.activeContracts,
+    state?.transactions,
+    state?.referralEarned,
+    state?.rebateEarned,
+    state?.bonusSpinBalance,
+    state?.welcomeBonusClaimed,
+  ]);
   const {
     totalModalAktif: totalPortfolioValue,
     maxPossibleEarnings,
@@ -39,7 +46,7 @@ const Home: React.FC<HomeProps> = ({ setHarvestModalOpen }) => {
     isCapped: isCappedLimitMet
   } = cappingMetrics;
 
-  const dailyYield = totalPortfolioValue * CONFIG.DAILY_REWARD_PERCENT;
+  const dailyYield = React.useMemo(() => totalPortfolioValue * CONFIG.DAILY_REWARD_PERCENT, [totalPortfolioValue]);
 
   if (isSyncing) {
     return <HomeSkeleton />;

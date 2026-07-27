@@ -13,7 +13,7 @@ interface ContractPageProps {
   handlePurchaseContract: () => void;
 }
 
-export const ContractPage: React.FC<ContractPageProps> = ({
+export const ContractPage: React.FC<ContractPageProps> = React.memo(({
   language,
   setCurrentTab,
   t,
@@ -22,6 +22,9 @@ export const ContractPage: React.FC<ContractPageProps> = ({
   adjustContractQty,
   handlePurchaseContract,
 }) => {
+  const totalPayment = React.useMemo(() => contractQty * CONFIG.PRICE_PER_UNIT, [contractQty]);
+  const dailyYieldPerUnit = React.useMemo(() => CONFIG.PRICE_PER_UNIT * CONFIG.DAILY_REWARD_PERCENT, []);
+  const cappingLimitPerUnit = React.useMemo(() => CONFIG.PRICE_PER_UNIT * CONFIG.CAPPING_PERCENT, []);
   return (
     <div className="space-y-4 text-left">
       <div className="flex items-center gap-2 border-b border-purple-500/10 pb-3">
@@ -91,7 +94,7 @@ export const ContractPage: React.FC<ContractPageProps> = ({
               +{(CONFIG.DAILY_REWARD_PERCENT * 100).toFixed(0)}%
             </span>
             <span className="text-[7.5px] text-slate-500 font-bold uppercase mt-0.5">
-              Rp {(CONFIG.PRICE_PER_UNIT * CONFIG.DAILY_REWARD_PERCENT).toLocaleString('id-ID')}
+              Rp {dailyYieldPerUnit.toLocaleString('id-ID')}
             </span>
           </div>
           <div className="bg-[#0c061e] border border-purple-500/10 rounded-lg p-2 flex flex-col justify-center min-h-[60px]">
@@ -102,7 +105,7 @@ export const ContractPage: React.FC<ContractPageProps> = ({
               {(CONFIG.CAPPING_PERCENT * 100).toFixed(0)}%
             </span>
             <span className="text-[7.5px] text-slate-500 font-bold uppercase mt-0.5">
-              Rp {(CONFIG.PRICE_PER_UNIT * CONFIG.CAPPING_PERCENT).toLocaleString('id-ID')}
+              Rp {cappingLimitPerUnit.toLocaleString('id-ID')}
             </span>
           </div>
         </div>
@@ -151,7 +154,7 @@ export const ContractPage: React.FC<ContractPageProps> = ({
           </div>
           <div className="text-right">
             <span className="text-base font-black text-yellow-500 font-sans">
-              Rp {(contractQty * CONFIG.PRICE_PER_UNIT).toLocaleString('id-ID')}
+              Rp {totalPayment.toLocaleString('id-ID')}
             </span>
           </div>
         </div>
@@ -167,6 +170,6 @@ export const ContractPage: React.FC<ContractPageProps> = ({
       </div>
     </div>
   );
-};
+});
 
 export default ContractPage;

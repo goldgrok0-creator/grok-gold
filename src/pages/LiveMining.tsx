@@ -38,7 +38,14 @@ const LiveMiningPage: React.FC<LiveMiningPageProps> = ({
     isLoading: isContractLoading
   } = useContract();
 
-  const cappingMetrics = calculateCappingEarnings(state);
+  const cappingMetrics = React.useMemo(() => calculateCappingEarnings(state), [
+    state?.activeContracts,
+    state?.transactions,
+    state?.referralEarned,
+    state?.rebateEarned,
+    state?.bonusSpinBalance,
+    state?.welcomeBonusClaimed,
+  ]);
   const {
     totalModalAktif: totalPortfolioValue,
     maxPossibleEarnings,
@@ -49,7 +56,7 @@ const LiveMiningPage: React.FC<LiveMiningPageProps> = ({
     isCapped: cappingIsCapped
   } = cappingMetrics;
 
-  const dailyYield = totalPortfolioValue * CONFIG.DAILY_REWARD_PERCENT;
+  const dailyYield = React.useMemo(() => totalPortfolioValue * CONFIG.DAILY_REWARD_PERCENT, [totalPortfolioValue]);
   const resolvedIsCappedLimitMet = isCappedLimitMet !== undefined 
     ? isCappedLimitMet 
     : cappingIsCapped;
