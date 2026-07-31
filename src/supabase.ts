@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 import { UserAccount, Transaction, AppState, CONFIG } from './types';
-import { telegramService } from './services/telegramService';
 
 // Hash function to prevent storing passwords in plaintext
 export async function hashPassword(password: string): Promise<string> {
@@ -27,17 +26,15 @@ export async function hashPassword(password: string): Promise<string> {
 // SUPABASE CLIENT INITIALIZATION
 // =========================================================================
 
-const FALLBACK_URL = 'https://qfhwprovgkjuiyiguxtn.supabase.co';
-const FALLBACK_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmaHdwcm92Z2tqdWl5aWd1eHRuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTc0NTUsImV4cCI6MjA5OTc5MzQ1NX0.r2MkVzBez8D0Hgi5CMzNSUPHRMSDNq6To0AYTfioGYA';
+const FALLBACK_URL = 'https://qoqahhublvisnmvfaqvj.supabase.co';
+const FALLBACK_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvcWFoaHVibHZpc25tdmZhcXZqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzNTc5NjcsImV4cCI6MjA5OTkzMzk2N30.wUXTs7X0-KaJoKFe6qF1bXYI_o13nDrijs4368tsAxQ';
 
 function getSupabaseUrl(): string {
   try {
     // @ts-ignore
     const url = import.meta.env?.VITE_SUPABASE_URL || (import.meta as any).env?.VITE_SUPABASE_URL;
     if (url && typeof url === 'string' && url.trim() !== '' && url.startsWith('http')) {
-      if (!url.includes('clsnuxoihrzuzdjisgbm')) {
-        return url.trim();
-      }
+      return url.trim();
     }
   } catch (e) {}
   return FALLBACK_URL;
@@ -51,9 +48,7 @@ function getSupabaseKey(url: string): string {
     // @ts-ignore
     const key = import.meta.env?.VITE_SUPABASE_ANON_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
     if (key && typeof key === 'string' && key.trim() !== '' && key.trim().length > 20) {
-      if (!key.includes('ImNsc251eG9paHJ6dXpkamlzZ2JtI')) {
-        return key.trim();
-      }
+      return key.trim();
     }
   } catch (e) {}
   return FALLBACK_KEY;
@@ -377,12 +372,6 @@ export async function seedDefaultAdminIfNeeded(): Promise<void> {
       };
 
       await supabase.from('users').insert(adminPayload);
-      try {
-        await supabase.from('spin_balances').upsert([
-          { username: 'admin', type: 'free', amount: 1000000, updated_at: new Date().toISOString() },
-          { username: 'admin', type: 'bonus', amount: 0, updated_at: new Date().toISOString() }
-        ], { onConflict: 'username,type' });
-      } catch (_) {}
       console.log('Seeded default admin successfully.');
     }
   } catch (err) {
@@ -394,8 +383,22 @@ export async function seedDefaultAdminIfNeeded(): Promise<void> {
 // REALTIME RETRIEVAL AND MAPPING ENGINE
 // =========================================================================
 
+async function safeQuery(queryPromise: any): Promise<{ data: any; error: any }> {
+  try {
+    const res = await queryPromise;
+    if (res?.error?.code === 'PGRST205' || (res?.error?.message && res.error.message.includes('Could not find the table'))) {
+      return { data: [], error: null };
+    }
+    return { data: res?.data || null, error: res?.error || null };
+  } catch (err) {
+    return { data: null, error: err };
+  }
+}
+
 export async function fetchAccountsFromSupabase(targetUsername?: string): Promise<UserAccount[] | null> {
   try {
+    const isAdminTarget = !targetUsername || targetUsername.toLowerCase() === 'admin';
+
     let usersQuery = supabase.from('users').select('*');
     let depositsQuery = supabase.from('deposits').select('*');
     let withdrawalsQuery = supabase.from('withdrawals').select('*');
@@ -403,38 +406,59 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
     let transactionsQuery = supabase.from('transactions').select('*');
     let spinBalancesQuery = supabase.from('spin_balances').select('*');
 
-    const [usersRes, depositsRes, withdrawalsRes, contractsRes, transactionsRes, spinBalancesRes] = await Promise.all([
-      usersQuery,
-      depositsQuery,
-      withdrawalsQuery,
-      contractsQuery,
-      transactionsQuery,
-      spinBalancesQuery
+    if (!isAdminTarget && targetUsername) {
+      const lower = targetUsername.toLowerCase();
+      // For non-admin specific user fetch, filter transaction/deposit/withdrawal details to that user
+      depositsQuery = depositsQuery.ilike('username', lower);
+      withdrawalsQuery = withdrawalsQuery.ilike('username', lower);
+      contractsQuery = contractsQuery.ilike('username', lower);
+      transactionsQuery = transactionsQuery.ilike('username', lower);
+      spinBalancesQuery = spinBalancesQuery.ilike('username', lower);
+    }
+
+    let [usersRes, depositsRes, withdrawalsRes, contractsRes, transactionsRes, spinBalancesRes] = await Promise.all([
+      safeQuery(usersQuery),
+      safeQuery(depositsQuery),
+      safeQuery(withdrawalsQuery),
+      safeQuery(contractsQuery),
+      safeQuery(transactionsQuery),
+      safeQuery(spinBalancesQuery)
     ]);
 
-    if (usersRes.error) {
-      console.error('Supabase usersQuery error:', usersRes.error);
-      return null;
-    }
-    if (depositsRes.error) {
-      console.error('Supabase depositsQuery error:', depositsRes.error);
-    }
-    if (withdrawalsRes.error) {
-      console.error('Supabase withdrawalsQuery error:', withdrawalsRes.error);
-    }
-    if (contractsRes.error) {
-      console.error('Supabase contractsQuery error:', contractsRes.error);
-    }
-    if (transactionsRes.error) {
-      console.error('Supabase transactionsQuery error:', transactionsRes.error);
+    let users = usersRes?.data || [];
+    if (!users || users.length === 0) {
+      users = [{
+        username: 'admin',
+        full_name: 'System Administrator',
+        email: 'admin@grockgold.com',
+        phone: '+6281234567890',
+        password: 'admin123',
+        role: 'admin',
+        referral_code: '',
+        invited_by: null,
+        main_balance: 1000000000,
+        active_contracts: 0,
+        total_earned: 0,
+        referral_earned: 0,
+        rebate_earned: 0,
+        last_claim_time: 0,
+        welcome_bonus_claimed: true,
+        profile_image: null,
+        pending_mining_reward: 0,
+        created_at: Date.now(),
+        settings: {
+          language: 'id',
+          notificationsEnabled: true,
+          autoReinvest: false
+        }
+      }];
     }
 
-    const users = usersRes.data || [];
-    const deposits = depositsRes.data || [];
-    const withdrawals = withdrawalsRes.data || [];
-    const contracts = contractsRes.data || [];
-    const transactions = transactionsRes.data || [];
-    const spinBalances = spinBalancesRes.data || [];
+    const deposits = depositsRes?.data || [];
+    const withdrawals = withdrawalsRes?.data || [];
+    const contracts = contractsRes?.data || [];
+    const transactions = transactionsRes?.data || [];
+    const spinBalances = spinBalancesRes?.data || [];
 
     // Trigger non-blocking legacy users sync to Supabase Auth
     syncLegacyUsersToSupabaseAuth().catch(() => {});
@@ -652,8 +676,7 @@ export async function fetchAccountsFromSupabase(targetUsername?: string): Promis
           autoReinvest: false,
           ...(user.settings || {}),
           freeSpinBalance: rawFreeSpin,
-          bonusSpinBalance: rawBonusSpin,
-          telegramId: user.telegram_id || user.settings?.telegramId || ''
+          bonusSpinBalance: rawBonusSpin
         },
         state: {
           mainBalance: Number(user.main_balance) || 0,
@@ -801,13 +824,13 @@ export async function registerUserInSupabase(account: UserAccount): Promise<{ su
         });
 
         if (authRes.error) {
-          console.warn('Supabase Auth signUp non-fatal warning (proceeding with DB registration):', authRes.error.message);
+          // Non-fatal warning (proceeding with DB registration)
         } else if (authRes.data?.user?.id) {
           authUserId = authRes.data.user.id;
         }
       }
     } catch (authErr) {
-      console.warn('Supabase Auth attempt warning:', authErr);
+      // Non-fatal warning
     }
 
     // Prepare payload for public.users table (which uses username as PRIMARY KEY)
@@ -852,34 +875,34 @@ export async function registerUserInSupabase(account: UserAccount): Promise<{ su
       }
 
       if (isNetworkError) {
-        console.warn('Supabase DB registration notice (network error, proceeding with local registration):', errMsg);
         return { success: true };
       }
 
-      console.warn('Supabase DB registration warning (proceeding with local registration):', errMsg);
       return { success: true };
     }
 
-    // Best-effort sync initial balances to spin_balances table
-    try {
-      const { error: sbErr } = await supabase.from('spin_balances').upsert([
-        { username: account.username, type: 'free', amount: freeSpinBal, updated_at: new Date().toISOString() },
-        { username: account.username, type: 'bonus', amount: bonusSpinBal, updated_at: new Date().toISOString() }
-      ], { onConflict: 'username,type' });
+    // Best-effort sync initial balances to spin_balances table (skip admin)
+    if (account.username.toLowerCase() !== 'admin') {
+      try {
+        const { error: sbErr } = await supabase.from('spin_balances').upsert([
+          { username: account.username, type: 'free', amount: freeSpinBal, updated_at: new Date().toISOString() },
+          { username: account.username, type: 'bonus', amount: bonusSpinBal, updated_at: new Date().toISOString() }
+        ], { onConflict: 'username,type' });
 
-      if (sbErr) {
-        const isTableMissing = sbErr.message?.includes('schema cache') || sbErr.message?.includes('does not exist');
-        if (!isTableMissing) {
-          try {
-            await supabase.from('spin_balances').insert([
-              { username: account.username, type: 'free', amount: freeSpinBal },
-              { username: account.username, type: 'bonus', amount: bonusSpinBal }
-            ]);
-          } catch (_) {}
+        if (sbErr) {
+          const isTableMissing = sbErr.message?.includes('schema cache') || sbErr.message?.includes('does not exist');
+          if (!isTableMissing) {
+            try {
+              await supabase.from('spin_balances').insert([
+                { username: account.username, type: 'free', amount: freeSpinBal },
+                { username: account.username, type: 'bonus', amount: bonusSpinBal }
+              ]);
+            } catch (_) {}
+          }
         }
+      } catch (_) {
+        // Non-fatal fallback: spin balances are stored in users.settings JSON
       }
-    } catch (_) {
-      // Non-fatal fallback: spin balances are stored in users.settings JSON
     }
 
     try {
@@ -953,18 +976,10 @@ export async function registerUserInSupabase(account: UserAccount): Promise<{ su
           } catch {}
         }
       }
-    } catch (auditErr) {
-      console.warn('Audit referral spin bonus error:', auditErr);
-    }
+    } catch (_) {}
 
     return { success: true };
-  } catch (err: any) {
-    const errMsg = err?.message || String(err || '');
-    if (errMsg.includes('Failed to fetch') || err?.name === 'TypeError') {
-      console.warn('Registration query notice (network error, proceeding with local account registration):', errMsg);
-      return { success: true };
-    }
-    console.warn('Registration query exception (proceeding with local account registration):', errMsg);
+  } catch (_) {
     return { success: true };
   }
 }
@@ -1001,15 +1016,6 @@ export async function createDepositInSupabase(
       console.error('Error inserting pending deposit payload into Supabase:', error);
       return false;
     }
-
-    telegramService.sendNotification({
-      username,
-      eventType: 'deposit',
-      title: 'Pengajuan Deposit Baru',
-      message: `Pengajuan deposit sebesar Rp ${amount.toLocaleString('id-ID')} (${paymentMethod}) telah berhasil dikirim dan menunggu verifikasi admin.`,
-      amount,
-      status: 'pending'
-    }).catch(() => {});
 
     return true;
   } catch (err) {
@@ -1070,15 +1076,6 @@ export async function createWithdrawalInSupabase(
       return false;
     }
 
-    telegramService.sendNotification({
-      username,
-      eventType: 'withdraw',
-      title: 'Pengajuan Penarikan Saldo',
-      message: `Pengajuan penarikan dana sebesar Rp ${amount.toLocaleString('id-ID')} (${bankName} - ${accountNumber}) telah diterima dan sedang diproses.`,
-      amount,
-      status: 'pending'
-    }).catch(() => {});
-
     return true;
   } catch (err) {
     console.error('Withdraw request query crash:', err);
@@ -1103,13 +1100,17 @@ export async function updateProfileImageInSupabase(username: string, imageUrl: s
 
 // 5. Update settings in Supabase
 export async function updateUserSettingsInSupabase(username: string, settings: any): Promise<boolean> {
+  if (!username || typeof username !== 'string') return false;
+  const cleanUsername = username.trim();
+  if (!cleanUsername) return false;
+
   try {
     let existingSettings: any = {};
     try {
       const { data: existingUser } = await supabase
         .from('users')
         .select('settings')
-        .ilike('username', username)
+        .ilike('username', cleanUsername)
         .maybeSingle();
       if (existingUser?.settings) {
         existingSettings = existingUser.settings;
@@ -1126,45 +1127,16 @@ export async function updateUserSettingsInSupabase(username: string, settings: a
     const { error } = await supabase
       .from('users')
       .update({ settings: mergedSettings })
-      .ilike('username', username);
+      .ilike('username', cleanUsername);
 
     if (error) {
-      console.error('Error updating settings:', error);
+      console.warn('Notice updating user settings in Supabase:', error.message || error);
       return false;
     }
     return true;
-  } catch (err) {
-    console.error('Error updating settings:', err);
-    return false;
-  }
-}
-
-// 5b. Save Telegram Chat ID with explicit detailed error return
-export async function saveTelegramChatIdToSupabase(
-  username: string,
-  telegramId: string,
-  settings: any
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    const updatedSettings = {
-      ...(settings || {}),
-      telegramId: telegramId
-    };
-
-    const { error } = await supabase
-      .from('users')
-      .update({ settings: updatedSettings })
-      .ilike('username', username);
-
-    if (error) {
-      console.error('Supabase error saving Telegram Chat ID:', error);
-      return { success: false, error: error.message || error.details || 'Database update failed' };
-    }
-
-    return { success: true };
   } catch (err: any) {
-    console.error('saveTelegramChatIdToSupabase crash:', err);
-    return { success: false, error: err?.message || String(err) };
+    console.warn('Notice updating user settings in Supabase:', err?.message || err);
+    return false;
   }
 }
 
@@ -1283,14 +1255,16 @@ export async function saveAccountToSupabase(account: UserAccount): Promise<boole
       return false;
     }
 
-    // Sync spin balances to spin_balances table (best-effort)
-    try {
-      await supabase.from('spin_balances').upsert([
-        { username: account.username, type: 'free', amount: mergedFreeSpinBal, updated_at: new Date().toISOString() },
-        { username: account.username, type: 'bonus', amount: mergedBonusSpinBal, updated_at: new Date().toISOString() }
-      ], { onConflict: 'username,type' });
-    } catch (_) {
-      // Non-fatal fallback: spin balances are stored in users.settings JSON
+    // Sync spin balances to spin_balances table (best-effort, skip admin)
+    if (account.username.toLowerCase() !== 'admin') {
+      try {
+        await supabase.from('spin_balances').upsert([
+          { username: account.username, type: 'free', amount: mergedFreeSpinBal, updated_at: new Date().toISOString() },
+          { username: account.username, type: 'bonus', amount: mergedBonusSpinBal, updated_at: new Date().toISOString() }
+        ], { onConflict: 'username,type' });
+      } catch (_) {
+        // Non-fatal fallback: spin balances are stored in users.settings JSON
+      }
     }
 
     return true;
@@ -1402,15 +1376,6 @@ export async function approveDepositInSupabase(
       return false;
     }
 
-    telegramService.sendNotification({
-      username,
-      eventType: 'deposit',
-      title: 'Deposit Disetujui! 💳',
-      message: `Deposit Anda sebesar Rp ${amount.toLocaleString('id-ID')} telah disetujui! Saldo utama Anda telah bertambah.`,
-      amount,
-      status: 'approved'
-    }).catch(() => {});
-
     return true;
   } catch (err) {
     console.error('Approve deposit crash:', err);
@@ -1442,17 +1407,6 @@ export async function rejectDepositInSupabase(depositId: string, rejectionReason
       .update({ status: 'rejected', payment_method: updatedPaymentMethod })
       .eq('id', depositId);
 
-    if (!error) {
-      telegramService.sendNotification({
-        username: dep.username,
-        eventType: 'deposit',
-        title: 'Deposit Ditolak ⚠️',
-        message: `Pengajuan deposit Anda sebesar Rp ${Number(dep.amount).toLocaleString('id-ID')} ditolak. Alasan: ${rejectionReason || 'Verifikasi bukti tidak sesuai'}.`,
-        amount: dep.amount,
-        status: 'rejected'
-      }).catch(() => {});
-    }
-
     return !error;
   } catch (err) {
     console.error('Reject deposit crash:', err);
@@ -1474,15 +1428,6 @@ export async function approveWithdrawalInSupabase(withdrawId: string, username: 
       console.error('Withdrawal Approval error:', error);
       return false;
     }
-
-    telegramService.sendNotification({
-      username,
-      eventType: 'withdraw',
-      title: 'Penarikan Disetujui! 💸',
-      message: `Pengajuan penarikan dana sebesar Rp ${amount.toLocaleString('id-ID')} telah berhasil diproses oleh admin ke rekening Anda.`,
-      amount,
-      status: 'approved'
-    }).catch(() => {});
 
     return true;
   } catch (err) {
@@ -1515,15 +1460,6 @@ export async function rejectWithdrawalInSupabase(withdrawId: string): Promise<bo
       console.error('Atomic Withdrawal Rejection/Refund error:', wdUpdate.error || userUpdate.error);
       return false;
     }
-
-    telegramService.sendNotification({
-      username: wd.username,
-      eventType: 'withdraw',
-      title: 'Penarikan Ditolak & Saldo Dikembalikan ⚠️',
-      message: `Pengajuan penarikan sebesar Rp ${refundAmount.toLocaleString('id-ID')} ditolak. Dana telah dikembalikan ke saldo utama Anda.`,
-      amount: refundAmount,
-      status: 'rejected'
-    }).catch(() => {});
 
     return true;
   } catch (err) {
@@ -1723,14 +1659,7 @@ export async function claimWelcomeBonusInSupabase(username: string): Promise<boo
     ]);
 
     if (!userUpdate.error && !txInsert.error) {
-      telegramService.sendNotification({
-        username,
-        eventType: 'claim',
-        title: 'Klaim Welcome Bonus! 🎁',
-        message: `Selamat! Welcome bonus sebesar Rp ${bonusAmount.toLocaleString('id-ID')} telah dikreditkan ke saldo reward Anda.`,
-        amount: bonusAmount,
-        status: 'claimed'
-      }).catch(() => {});
+      // Bonus claimed
     }
 
     return !userUpdate.error && !txInsert.error;
@@ -1873,15 +1802,6 @@ export async function claimDailyRewardInSupabase(
       console.error('Supabase txInsert error:', txInsert.error);
       return { success: false, error: txInsert.error.message };
     }
-
-    telegramService.sendNotification({
-      username,
-      eventType: 'claim',
-      title: 'Klaim Daily Reward Sukses! 🎁',
-      message: `Selamat! Hasil tambang harian sebesar Rp ${totalCredited.toLocaleString('id-ID')} telah berhasil dikreditkan ke saldo reward Anda.`,
-      amount: totalCredited,
-      status: 'claimed'
-    }).catch(() => {});
 
     return { 
       success: true, 
@@ -2082,10 +2002,32 @@ export async function resetAllDataInSupabase(): Promise<boolean> {
       supabase.from('contracts').delete().neq('username', 'admin'),
       supabase.from('deposits').delete().neq('username', 'admin'),
       supabase.from('withdrawals').delete().neq('username', 'admin'),
-      supabase.from('users').delete().neq('role', 'admin')
+      supabase.from('users').delete().neq('username', 'admin')
     ]);
     return true;
   } catch {
+    return false;
+  }
+}
+
+// Clear ALL transaction, deposit, and withdrawal history
+export async function clearAllHistoryInSupabase(): Promise<boolean> {
+  try {
+    // Delete all rows in transactions, deposits, withdrawals tables
+    await Promise.all([
+      supabase.from('transactions').delete().neq('username', '__non_existent_user__'),
+      supabase.from('deposits').delete().neq('username', '__non_existent_user__'),
+      supabase.from('withdrawals').delete().neq('username', '__non_existent_user__'),
+    ]);
+
+    // Also update embedded settings or reset state if present
+    const { data: users } = await supabase.from('users').select('username');
+    if (users && users.length > 0) {
+      // Nothing extra needed since transactions are stored in transactions table, but we ensure DB clean
+    }
+    return true;
+  } catch (err) {
+    console.error('Error clearing history in Supabase:', err);
     return false;
   }
 }
@@ -2425,7 +2367,7 @@ export async function fetchAdminSpinDataFromSupabase(requesterUsername: string) 
   // 2. Direct Supabase Fallback
   try {
     const [usersRes, sbRes, txRes] = await Promise.all([
-      supabase.from('users').select('id,username,full_name,email,role,created_at'),
+      supabase.from('users').select('username,full_name,email,created_at'),
       supabase.from('spin_balances').select('*'),
       supabase.from('transactions')
         .select('*')

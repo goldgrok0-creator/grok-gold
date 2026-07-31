@@ -21,8 +21,8 @@ export default function Dashboard({ accounts, systemConfig, language, onNavigate
 
     accounts.forEach(acc => {
       if (isMemberAccount(acc)) {
-        totalBalances += acc.state?.mainBalance || 0;
-        totalContracts += acc.state?.activeContracts || 0;
+        totalBalances += Math.max(0, acc.state?.mainBalance || 0);
+        totalContracts += Math.max(0, acc.state?.activeContracts || 0);
       }
       if (acc.state?.transactions) {
         acc.state.transactions.forEach((t: any) => {
@@ -45,8 +45,8 @@ export default function Dashboard({ accounts, systemConfig, language, onNavigate
 
     return {
       totalUsers: Math.max(0, totalUsers),
-      totalBalances,
-      totalContracts,
+      totalBalances: Math.max(0, totalBalances),
+      totalContracts: Math.max(0, totalContracts),
       totalDepositsVolume,
       totalWithdrawalsVolume,
       allTransactions,

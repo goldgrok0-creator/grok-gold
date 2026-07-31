@@ -243,29 +243,6 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let loggedInUsername = localStorage.getItem('grockgold_logged_in_username_v4');
     const isBypassed = localStorage.getItem('grockgold_bypass_verification_v4') === 'true';
 
-    // Telegram Mini App Auto-Login Check
-    if ((window as any).Telegram?.WebApp) {
-      try {
-        (window as any).Telegram.WebApp.expand?.();
-        const initData = (window as any).Telegram.WebApp.initData;
-        if (initData) {
-          const authRes = await fetch('/api/telegram/webapp-auth', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ initData })
-          });
-          const authData = await authRes.json();
-          if (authData.success && authData.authenticated && authData.user?.username) {
-            loggedInUsername = authData.user.username;
-            localStorage.setItem('grockgold_logged_in_username_v4', loggedInUsername);
-            console.log(`✅ Auto-logged in via Telegram Mini App as @${loggedInUsername}`);
-          }
-        }
-      } catch (tgAuthErr) {
-        console.warn('Telegram Mini App auto-login check failed:', tgAuthErr);
-      }
-    }
-
     try {
       const config = await fetchGlobalConfig().catch(() => null);
       if (config) {
@@ -352,18 +329,8 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     };
 
-    const channelName = `app_context_schema_db_changes_${Math.random().toString(36).substring(2, 9)}`;
-    const dbChannel = supabase
-      .channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, handlePayload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'deposits' }, handlePayload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawals' }, handlePayload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, handlePayload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, handlePayload)
-      .subscribe();
-
+    // Note: Database sync is performed on initial load, user actions, or manual refresh to optimize bandwidth and egress.
     return () => {
-      supabase.removeChannel(dbChannel);
       if (syncTimeout) clearTimeout(syncTimeout);
     };
   }, []);

@@ -64,7 +64,7 @@ export const HelpPage: React.FC<HelpPageProps> = ({
 
         <div className="pt-2">
           <button
-            onClick={() => triggerModal('💬 Layanan Pelanggan GROCKGOLD Telegram Support:<br><b>@GrockGold_Support_Bot</b><br><br>Email: support@grockgold.com<br>Waktu Respons: 24/7 Live.', 'info')}
+            onClick={() => triggerModal('💬 Layanan Pelanggan GROCKGOLD Support:<br>Email: support@grockgold.com<br>Waktu Respons: 24/7 Live.', 'info')}
             className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-gold-primary font-bold rounded-2xl text-xs uppercase transition flex items-center justify-center gap-2 cursor-pointer"
           >
             HUBUNGI CUSTOMER SERVICE

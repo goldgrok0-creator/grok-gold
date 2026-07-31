@@ -27,7 +27,9 @@ export default function Withdraw({
     try {
       const { data, error } = await supabase
         .from('withdrawals')
-        .select('*');
+        .select('id, username, amount, bank_info, status, created_at')
+        .order('created_at', { ascending: false })
+        .limit(200);
       if (!error && data) {
         setDirectWithdrawals(data);
       }
@@ -38,18 +40,6 @@ export default function Withdraw({
 
   useEffect(() => {
     fetchDirectWithdrawals();
-
-    const channelName = `direct-withdrawals-admin-refresh_${Math.random().toString(36).substring(2, 9)}`;
-    const channel = supabase
-      .channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawals' }, () => {
-        fetchDirectWithdrawals();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, []);
 
   // --- COMPUTE & MERGE WITHDRAWALS ---

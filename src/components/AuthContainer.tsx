@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAppState } from '../AppContext';
 import { useAuth } from '../hooks/useAuth';
 import { TRANSLATIONS } from '../translations';
-import { User, Lock, Mail, Globe, Gift, ChevronLeft, ArrowDown, ArrowUp } from 'lucide-react';
+import { User, Lock, Mail, Globe, Gift, ChevronLeft, ArrowDown, ArrowUp, ShieldCheck } from 'lucide-react';
 import { SearchableCountrySelect } from './SearchableCountrySelect';
 import { WORLD_COUNTRIES } from '../data/countries';
 // @ts-ignore
@@ -618,12 +618,24 @@ export const AuthContainer: React.FC = () => {
                 </div>
               )}
 
-              <div className="text-center mt-5 z-10">
+              <div className="text-center mt-5 pt-3 border-t border-slate-800/60 z-10 flex flex-col items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => setAuthScreen('register')}
                   className="text-[10px] font-extrabold text-yellow-400 hover:underline transition cursor-pointer"
                 >
                   {tAuth.noAccount}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.history.pushState(null, '', '/admin');
+                    window.dispatchEvent(new Event('popstate'));
+                  }}
+                  className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-rose-400 hover:text-rose-300 bg-rose-950/40 border border-rose-500/20 hover:border-rose-500/40 px-3 py-1.5 rounded-xl transition cursor-pointer mt-1"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>{language === 'id' ? '🔑 Portal Login Admin (/admin)' : '🔑 Admin Portal Login (/admin)'}</span>
                 </button>
               </div>
             </div>

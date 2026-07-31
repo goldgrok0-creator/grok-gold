@@ -597,16 +597,6 @@ const RewardsPage: React.FC = () => {
 
             <div className="space-y-1">
               <div className="flex justify-between items-center text-[11px] font-semibold">
-                <span>🔵 Telegram</span>
-                <span className="font-bold text-slate-200">30% <span className="text-[8px] text-slate-500 font-medium">({Math.round(clicksCount * 0.3)} clicks)</span></span>
-              </div>
-              <div className="w-full h-1.5 bg-black/45 rounded-full overflow-hidden">
-                <div className="h-full bg-sky-400 rounded-full" style={{ width: '30%' }} />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex justify-between items-center text-[11px] font-semibold">
                 <span>🔴 YouTube</span>
                 <span className="font-bold text-slate-200">15% <span className="text-[8px] text-slate-500 font-medium">({Math.round(clicksCount * 0.15)} clicks)</span></span>
               </div>

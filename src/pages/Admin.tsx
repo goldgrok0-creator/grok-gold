@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAppState } from '../AppContext';
 import { useAuth } from '../hooks/useAuth';
-import AdminLayout from '../components/AdminLayout';
+import AdminLayout from '../components/admin/AdminLayout';
 import { saveAccountToSupabase, saveGlobalConfig, updateGlobalConfig } from '../supabase';
 
 export const AdminPage: React.FC = () => {

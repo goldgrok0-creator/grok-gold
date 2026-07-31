@@ -41,7 +41,9 @@ export default function Deposit({
     try {
       const { data, error } = await supabase
         .from('deposits')
-        .select('*');
+        .select('id, username, amount, payment_method, status, proof_image, created_at')
+        .order('created_at', { ascending: false })
+        .limit(200);
       if (!error && data) {
         setDirectDeposits(data);
       }
@@ -52,18 +54,6 @@ export default function Deposit({
 
   useEffect(() => {
     fetchDirectDeposits();
-
-    const channelName = `direct-deposits-admin-refresh_${Math.random().toString(36).substring(2, 9)}`;
-    const channel = supabase
-      .channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'deposits' }, () => {
-        fetchDirectDeposits();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, []);
 
   // --- COMPUTE & MERGE DEPOSITS ---

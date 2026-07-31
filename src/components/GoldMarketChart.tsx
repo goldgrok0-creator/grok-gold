@@ -278,34 +278,6 @@ export default function GoldMarketChart({ language }: GoldMarketChartProps) {
 
   useEffect(() => {
     loadActivities();
-
-    // Listen to real-time changes using Supabase Realtime Channels
-    const channelName = `global-live-activities_${Math.random().toString(36).substring(2, 9)}`;
-    const channel = supabase
-      .channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, () => {
-        loadActivities();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => {
-        loadActivities();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'deposits' }, () => {
-        loadActivities();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, () => {
-        loadActivities();
-      })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          setIsConnected(true);
-        } else {
-          setIsConnected(false);
-        }
-      });
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, []);
 
   // Generate SVG path for sparkline chart

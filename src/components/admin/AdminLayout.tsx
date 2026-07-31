@@ -12,17 +12,17 @@ import {
   Globe,
   X,
   RotateCw,
+  RefreshCw,
   Send
 } from 'lucide-react';
 import { UserAccount, Transaction, AppState } from '../../types';
-import { supabase } from '../../supabase';
+import { supabase, getSignedProofUrl, clearAllHistoryInSupabase, fetchAccountsFromSupabase } from '../../supabase';
 import {
   approveDepositInSupabase,
   rejectDepositInSupabase,
   approveWithdrawalInSupabase,
   rejectWithdrawalInSupabase
 } from '../../supabaseAdmin';
-import { getSignedProofUrl } from '../../supabase';
 
 // Lazy loaded page components
 const Dashboard = React.lazy(() => import('../../pages/admin/Dashboard'));
@@ -33,7 +33,6 @@ const Settings = React.lazy(() => import('../../pages/admin/Settings'));
 const Contracts = React.lazy(() => import('../../pages/admin/Contracts'));
 const Network = React.lazy(() => import('../../pages/admin/Network'));
 const SpinControl = React.lazy(() => import('../../pages/admin/SpinControl'));
-const TelegramAdmin = React.lazy(() => import('../../pages/admin/Telegram'));
 
 interface AdminLayoutProps {
   accounts: UserAccount[];
@@ -69,6 +68,43 @@ export default function AdminLayout({
   const [viewingProofUrl, setViewingProofUrl] = useState<string | null>(null);
   const [signedProofUrl, setSignedProofUrl] = useState<string | null>(null);
   const [isLoadingSignedUrl, setIsLoadingSignedUrl] = useState(false);
+  const [isSyncingWithSupabase, setIsSyncingWithSupabase] = useState(false);
+
+  // Sync fresh records directly from Supabase
+  const handleSyncSupabaseData = async (showToast = true) => {
+    setIsSyncingWithSupabase(true);
+    try {
+      const fresh = await fetchAccountsFromSupabase('admin');
+      if (fresh && fresh.length > 0) {
+        setAccounts(fresh);
+        if (showToast) {
+          triggerModal(
+            language === 'id' 
+              ? '✅ Data Halaman Admin berhasil disinkronkan dari Supabase!' 
+              : '✅ Admin page data synchronized from Supabase!', 
+            'success'
+          );
+        }
+      }
+    } catch (err) {
+      console.error('Failed to sync admin data from Supabase:', err);
+      if (showToast) {
+        triggerModal(
+          language === 'id' 
+            ? '❌ Gagal sinkronisasi data Supabase.' 
+            : '❌ Failed to sync Supabase data.', 
+          'danger'
+        );
+      }
+    } finally {
+      setIsSyncingWithSupabase(false);
+    }
+  };
+
+  // Auto-sync on initial mount
+  useEffect(() => {
+    handleSyncSupabaseData(false);
+  }, []);
 
   useEffect(() => {
     if (viewingProofUrl) {
@@ -343,6 +379,30 @@ export default function AdminLayout({
   };
 
   // Gift Mining Contract
+  const handleClearAllHistory = async (): Promise<boolean> => {
+    const success = await clearAllHistoryInSupabase();
+    if (success) {
+      setAccounts(prev => prev.map(acc => ({
+        ...acc,
+        state: {
+          ...acc.state,
+          transactions: []
+        }
+      })));
+      if (setCurrentAccount) {
+        setCurrentAccount(prev => prev ? {
+          ...prev,
+          state: {
+            ...prev.state,
+            transactions: []
+          }
+        } : null);
+      }
+      updateState({ transactions: [] }, true);
+    }
+    return success;
+  };
+
   const handleGiftContract = (recipient: string, qty: number) => {
     const newTx: Transaction = {
       id: 'GFT-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
@@ -380,7 +440,6 @@ export default function AdminLayout({
     { path: '/admin/deposit', id: 'deposit', label: language === 'id' ? 'Deposit' : 'Deposits', icon: ArrowDownCircle },
     { path: '/admin/withdraw', id: 'withdraw', label: language === 'id' ? 'Penarikan' : 'Withdrawals', icon: ArrowUpCircle },
     { path: '/admin/contracts', id: 'contracts', label: language === 'id' ? 'Kontrak' : 'Contracts', icon: Briefcase },
-    { path: '/admin/telegram', id: 'telegram', label: language === 'id' ? 'Integrasi Telegram' : 'Telegram Integration', icon: Send },
     { path: '/admin/settings', id: 'settings', label: language === 'id' ? 'Settings' : 'Settings', icon: WalletIcon },
     { path: '/admin/network', id: 'network', label: language === 'id' ? 'Jaringan' : 'Network', icon: NetworkIcon },
   ];
@@ -442,7 +501,9 @@ export default function AdminLayout({
         <Settings
           systemConfig={systemConfig}
           language={language}
+          triggerModal={triggerModal}
           onSaveSystemConfig={handleSaveSystemConfig}
+          onClearAllHistory={handleClearAllHistory}
         />
       );
     }
@@ -476,11 +537,6 @@ export default function AdminLayout({
           globalConfig={globalConfig}
           onSaveGlobalConfig={onSaveGlobalConfig}
         />
-      );
-    }
-    if (currentPath === '/admin/telegram') {
-      return (
-        <TelegramAdmin />
       );
     }
     // Fallback to Dashboard
@@ -517,6 +573,15 @@ export default function AdminLayout({
             SYS VER 5.3.0 • {language === 'id' ? 'KONEKSI AKTIF' : 'SECURE CONNECTED'}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleSyncSupabaseData(true)}
+              disabled={isSyncingWithSupabase}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-extrabold bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-400 hover:text-white transition uppercase cursor-pointer disabled:opacity-50"
+              title="Sinkronkan Data Supabase"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingWithSupabase ? 'animate-spin' : ''}`} />
+              <span>{isSyncingWithSupabase ? (language === 'id' ? 'Menyinkronkan...' : 'Syncing...') : (language === 'id' ? 'Sinkron Supabase' : 'Sync Supabase')}</span>
+            </button>
             <button
               onClick={() => {
                 window.history.pushState(null, '', '/');

@@ -88,7 +88,6 @@ import { SearchableCountrySelect } from './components/SearchableCountrySelect';
 import { WORLD_COUNTRIES } from './data/countries';
 import ContractPage from './components/ContractPage';
 import WalletPage from './components/WalletPage';
-import { TelegramLinkingBanner } from './components/TelegramLinkingBanner';
 import { HarvestModal } from './components/HarvestModal';
 import { PortfolioMetricsDisplay, CappingProgressPanelDisplay } from './components/DashboardMetrics';
 import ClockIcon from './components/icons/ClockIcon';
@@ -514,9 +513,8 @@ export default function App() {
 
       // Re-verify current active logged-in user with Supabase Auth session or localStorage session
       const { data: { session } } = await supabase.auth.getSession();
-      const supabaseAccounts = await fetchAccountsFromSupabase();
-
       const savedUsername = localStorage.getItem('grockgold_logged_in_username_v4');
+      const supabaseAccounts = await fetchAccountsFromSupabase(savedUsername || undefined);
       let loggedInUsername: string | null = null;
       let matchedAccount: UserAccount | null = null;
 
@@ -718,20 +716,8 @@ export default function App() {
       }
     };
 
-    // Setup Realtime PostgreSQL Changes listener for the 5 relational tables
-    const channelName = `app_main_schema_db_changes_${Math.random().toString(36).substring(2, 9)}`;
-    const dbChannel = supabase
-      .channel(channelName)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, handlePayload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'deposits' }, handlePayload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawals' }, handlePayload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, handlePayload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, handlePayload)
-      .subscribe();
-
-    // Cleanup subscription on unmount
+    // Note: Database sync is performed on initial load, user actions, or manual refresh to optimize bandwidth and egress.
     return () => {
-      supabase.removeChannel(dbChannel);
       if (syncTimeout) clearTimeout(syncTimeout);
     };
   }, []);
@@ -1734,12 +1720,11 @@ export default function App() {
 
       if (signInError) {
         if (signInError.message?.toLowerCase().includes('email not confirmed') || signInError.message?.toLowerCase().includes('confirm your email')) {
-          console.warn('Supabase Auth unconfirmed email - bypassing check.');
           localStorage.setItem('grockgold_bypass_verification_v4', 'true');
         } else if (signInError.message?.includes('Invalid login credentials') || signInError.message?.includes('User not found')) {
           try {
             const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://grok-gold-drab.vercel.app';
-            const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+            const { data: signUpData } = await supabase.auth.signUp({
               email: found.email,
               password: pass,
               options: {
@@ -1752,7 +1737,6 @@ export default function App() {
             });
 
             if (signUpData?.user && !signUpData.user.email_confirmed_at && found.role !== 'admin') {
-              console.warn('Supabase Auth signUp created unconfirmed user - bypassing check.');
               localStorage.setItem('grockgold_bypass_verification_v4', 'true');
             }
 
@@ -1760,25 +1744,18 @@ export default function App() {
               email: found.email,
               password: pass
             });
-          } catch (signUpErr) {
-            console.warn('Optional on-the-fly Supabase Auth signup failed:', signUpErr);
-          }
-        } else {
-          console.warn('Supabase Auth login warning:', signInError.message);
+          } catch (_) {}
         }
       }
 
       // Check if user has confirmed email (skip check for Admin treasury account)
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       if (user && found.role !== 'admin' && user.email?.toLowerCase() !== 'admin@grockgold.com') {
         if (!user.email_confirmed_at) {
-          console.warn('User email is unconfirmed - bypassing check.');
           localStorage.setItem('grockgold_bypass_verification_v4', 'true');
         }
       }
-    } catch (authErr) {
-      console.warn('Supabase Auth execution failed:', authErr);
-    }
+    } catch (_) {}
 
     setCurrentAccount(found);
 
@@ -3058,7 +3035,7 @@ export default function App() {
 
     updateState(prev => ({
       ...prev,
-      mainBalance: prev.mainBalance - amount,
+      mainBalance: Math.max(0, prev.mainBalance - amount),
       transactions: [newTx, ...prev.transactions],
     }), true);
 
@@ -3100,7 +3077,7 @@ export default function App() {
           // Instantly update local state for a snappy and responsive UI
           setState(prev => {
             const nextContracts = prev.activeContracts + contractQty;
-            const nextBalance = prev.mainBalance - cost;
+            const nextBalance = Math.max(0, prev.mainBalance - cost);
             return {
               ...prev,
               activeContracts: nextContracts,

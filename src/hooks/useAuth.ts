@@ -50,9 +50,7 @@ export const useAuth = () => {
         if (data) {
           dbUser = data;
         }
-      } catch (err) {
-        console.warn('Error querying user directly from Supabase for auth:', err);
-      }
+      } catch (_) {}
     }
 
     if (!targetAccount && !dbUser) {
@@ -72,6 +70,19 @@ export const useAuth = () => {
 
     const userEmail = targetAccount?.email || dbUser?.email || '';
     const userUsername = targetAccount?.username || dbUser?.username || '';
+    const userRole = targetAccount?.role || dbUser?.role || (userUsername.toLowerCase() === 'admin' ? 'admin' : 'user');
+
+    if (userRole === 'admin' || userUsername.toLowerCase() === 'admin') {
+      triggerModal(
+        language === 'id' 
+          ? '🔒 Akun Administrator! Mengalihkan ke Portal Login Admin (/admin)...' 
+          : '🔒 Admin Account detected! Redirecting to Admin Portal (/admin)...',
+        'info'
+      );
+      window.history.pushState(null, '', '/admin');
+      window.dispatchEvent(new Event('popstate'));
+      return;
+    }
 
     setUnverifiedEmail(null);
     setResendStatus(null);
@@ -100,8 +111,7 @@ export const useAuth = () => {
           }
         }
       }
-    } catch (authErr) {
-      console.warn('Supabase Auth execution failed or timed out:', authErr);
+    } catch (_) {
     } finally {
       setIsLoading(false);
     }
@@ -112,9 +122,7 @@ export const useAuth = () => {
       if (fetchedAccounts && fetchedAccounts.length > 0) {
         freshAccount = fetchedAccounts.find(a => a.username.toLowerCase() === userUsername.toLowerCase()) || null;
       }
-    } catch (e) {
-      console.warn('Could not fetch fresh account on login:', e);
-    }
+    } catch (_) {}
 
     const rawFreeSpinBal = dbUser ? (dbUser.state?.freeSpinBalance ?? dbUser.settings?.freeSpinBalance ?? 1000000) : 1000000;
     const rawBonusSpinBal = dbUser ? (dbUser.state?.bonusSpinBalance ?? dbUser.settings?.bonusSpinBalance ?? 0) : 0;

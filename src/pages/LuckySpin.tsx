@@ -491,7 +491,7 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
           fetchSpinInfo(retryCount + 1);
         }, 1000);
       } else {
-        console.warn("Informasi Lucky Spin tidak dapat diambil saat ini (koneksi terputus/server sibuk). Menggunakan data lokal.");
+        // Quietly fallback to local state
       }
     } finally {
       setIsLoadingInfo(false);
@@ -718,9 +718,7 @@ export const LuckySpinPage: React.FC<LuckySpinPageProps> = ({ calculateCountdown
                 colors: ['#FFD700', '#22C55E', '#EAB308']
               });
             }, 220);
-          } catch (e) {
-            console.warn("Confetti error:", e);
-          }
+          } catch (_) {}
 
           setWinModalData({
             amount: wonAmount,

@@ -39,7 +39,7 @@ const SEED_MESSAGES: CommunityMessage[] = [
   {
     id: 'seed-4',
     username: 'admin',
-    message: 'Selamat bergabung semuanya! Silakan hubungi Telegram Group untuk panduan claim welcome bonus 1.8M.',
+    message: 'Selamat bergabung semuanya! Silakan ikuti panduan komunitas untuk claim welcome bonus 1.8M.',
     created_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
   }
 ];
@@ -77,7 +77,6 @@ export const CommunityPage: React.FC = () => {
 
   // Social Community Links configured via env or fallbacks
   const waUrl = (import.meta as any).env?.VITE_COMMUNITY_WA_URL || '';
-  const telegramUrl = (import.meta as any).env?.VITE_COMMUNITY_TELEGRAM_URL || '';
   const discordUrl = (import.meta as any).env?.VITE_COMMUNITY_DISCORD_URL || '';
 
   const scrollToBottom = () => {
@@ -418,28 +417,6 @@ export const CommunityPage: React.FC = () => {
             </div>
             <div className="flex items-center gap-1 text-xs text-emerald-400 font-black group-hover:translate-x-1 transition-transform">
               <span>{waUrl ? 'JOIN' : 'INFO'}</span>
-              <ExternalLink className="w-3 h-3" />
-            </div>
-          </button>
-
-          {/* Telegram Button */}
-          <button
-            onClick={() => openSocialLink(telegramUrl, 'Telegram Official')}
-            className="w-full p-3 rounded-2xl bg-[#0a1829] border border-blue-500/20 hover:border-blue-400/40 transition flex items-center justify-between text-left cursor-pointer group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                <Send className="w-4 h-4 text-blue-400" />
-              </div>
-              <div>
-                <div className="text-xs font-black text-white leading-none">Telegram GrockGold Indo</div>
-                <span className="text-[8px] text-slate-400 font-bold uppercase mt-1 block">
-                  {telegramUrl ? (language === 'id' ? 'Channel Telegram Resmi' : 'Official Telegram Channel') : (language === 'id' ? 'Segera Hadir / Coming Soon' : 'Coming Soon')}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 text-xs text-blue-400 font-black group-hover:translate-x-1 transition-transform">
-              <span>{telegramUrl ? 'JOIN' : 'INFO'}</span>
               <ExternalLink className="w-3 h-3" />
             </div>
           </button>

@@ -1436,7 +1436,7 @@ export default function CompanyPortal({
                 <div className="space-y-2">
                   <span className="text-[9px] text-slate-500 font-black uppercase tracking-wider block">Connect on Socials</span>
                   <div className="flex gap-2.5">
-                    {['TELEGRAM', 'TWITTER', 'INSTAGRAM', 'LINKEDIN'].map(soc => (
+                    {['TWITTER', 'INSTAGRAM', 'LINKEDIN'].map(soc => (
                       <span 
                         key={soc}
                         className="text-[9px] bg-white/5 border border-white/10 text-slate-300 font-black px-2.5 py-1 rounded-md hover:text-yellow-500 hover:border-yellow-500/20 transition cursor-pointer"

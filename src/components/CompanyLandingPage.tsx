@@ -930,7 +930,6 @@ export default function CompanyLandingPage({
               <div className="space-y-2">
                 <span className="block text-[10px] text-slate-500 font-bold uppercase mb-1">Corporate Social Channels</span>
                 <div className="flex items-center gap-3">
-                  <span className="px-2.5 py-1 rounded bg-[#1c0e35] text-[10px] font-extrabold text-yellow-400 border border-yellow-500/15 cursor-pointer hover:bg-yellow-500/10 hover:text-white transition uppercase">Telegram</span>
                   <span className="px-2.5 py-1 rounded bg-[#1c0e35] text-[10px] font-extrabold text-yellow-400 border border-yellow-500/15 cursor-pointer hover:bg-yellow-500/10 hover:text-white transition uppercase">LinkedIn</span>
                   <span className="px-2.5 py-1 rounded bg-[#1c0e35] text-[10px] font-extrabold text-yellow-400 border border-yellow-500/15 cursor-pointer hover:bg-yellow-500/10 hover:text-white transition uppercase">Twitter</span>
                 </div>

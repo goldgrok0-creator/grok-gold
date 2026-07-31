@@ -1,21 +1,57 @@
 import React, { useState } from 'react';
-import { Save, Lock, Shield, Key, Bell, Globe, HelpCircle, Check, CreditCard, DollarSign, Cpu } from 'lucide-react';
+import { Save, Lock, Shield, Key, Bell, Globe, HelpCircle, Check, CreditCard, DollarSign, Cpu, Trash2 } from 'lucide-react';
 import { GlobalConfig, CONFIG } from '../../types';
-import { saveGlobalConfigToSupabase, supabase } from '../../supabase';
+import { saveGlobalConfigToSupabase, clearAllHistoryInSupabase, supabase } from '../../supabase';
 
 interface SettingsProps {
   language: 'id' | 'en';
   triggerModal: (msg: string, type: 'success' | 'danger' | 'warning' | 'info') => void;
   globalConfig?: GlobalConfig;
   onSaveGlobalConfig?: (config: GlobalConfig) => Promise<boolean>;
+  onClearAllHistory?: () => Promise<boolean>;
 }
 
 export default function Settings({
   language,
   triggerModal,
   globalConfig,
-  onSaveGlobalConfig
+  onSaveGlobalConfig,
+  onClearAllHistory
 }: SettingsProps) {
+  const [isClearingHistory, setIsClearingHistory] = useState(false);
+
+  const handleClearHistoryAction = async () => {
+    if (!window.confirm(language === 'id' ? 'Apakah Anda yakin ingin mengosongkan SELURUH riwayat transaksi, deposit, dan penarikan?' : 'Are you sure you want to clear ALL transaction, deposit, and withdrawal history?')) {
+      return;
+    }
+    setIsClearingHistory(true);
+    try {
+      let success = false;
+      if (onClearAllHistory) {
+        success = await onClearAllHistory();
+      } else {
+        success = await clearAllHistoryInSupabase();
+      }
+      if (success) {
+        triggerModal(
+          language === 'id' ? '✅ Semua riwayat transaksi, deposit, dan penarikan berhasil dikosongkan!' : '✅ All transaction, deposit, and withdrawal history cleared successfully!',
+          'success'
+        );
+      } else {
+        triggerModal(
+          language === 'id' ? '❌ Gagal mengosongkan riwayat.' : '❌ Failed to clear history.',
+          'danger'
+        );
+      }
+    } catch (err: any) {
+      triggerModal(
+        language === 'id' ? '❌ Terjadi kesalahan: ' + (err?.message || 'Error') : '❌ An error occurred.',
+        'danger'
+      );
+    } finally {
+      setIsClearingHistory(false);
+    }
+  };
   // Banking & Payment Options
   const [bankName, setBankName] = useState(globalConfig?.paymentBankName || 'BANK CENTRAL ASIA (BCA)');
   const [bankAccount, setBankAccount] = useState(globalConfig?.paymentBankAccount || '8835019283');
@@ -37,7 +73,6 @@ export default function Settings({
 
   // Contact & Announcement Links
   const [waLink, setWaLink] = useState(globalConfig?.supportWhatsappLink || 'https://wa.me/6281234567890');
-  const [telegramLink, setTelegramLink] = useState(globalConfig?.supportTelegramLink || 'https://t.me/grockgold_official');
   const [runningNotice, setRunningNotice] = useState(globalConfig?.runningNoticeText || '🔥 PENGUMUMAN: Promo bonus deposit 10% dan hadiah Lucky Spin berlaku untuk seluruh member aktif!');
 
   // Admin Credentials Change
@@ -156,7 +191,6 @@ export default function Settings({
       minWithdrawAmount: parsedMinWithdraw,
       minWithdraw: parsedMinWithdraw,
       supportWhatsappLink: waLink.trim(),
-      supportTelegramLink: telegramLink.trim(),
       runningNoticeText: runningNotice.trim(),
       updatedAt: Date.now()
     };
@@ -353,18 +387,6 @@ export default function Settings({
                 />
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                  Link Telegram Community / Channel
-                </label>
-                <input
-                  type="text"
-                  value={telegramLink}
-                  onChange={(e) => setTelegramLink(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-cyan-400 font-mono focus:outline-none"
-                />
-              </div>
-
               <div className="md:col-span-2">
                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
                   Teks Pengumuman Running Text (Home Ticker)
@@ -437,6 +459,32 @@ export default function Settings({
               >
                 <Key className="w-4 h-4" />
                 <span>{isChangingPass ? 'Memproses...' : 'Perbarui Password Admin'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* SECTION 5: KOSONGKAN RIWAYAT TRANSAKSI */}
+          <div className="bg-red-950/30 p-5 rounded-2xl border border-red-900/50 space-y-4 lg:col-span-2">
+            <div className="flex items-center gap-2 border-b border-red-900/40 pb-3">
+              <Trash2 className="w-5 h-5 text-red-400" />
+              <h4 className="text-xs font-black uppercase text-red-300 tracking-wider">
+                5. KOSONGKAN RIWAYAT TRANSAKSI (DANGER ZONE)
+              </h4>
+            </div>
+
+            <p className="text-xs text-red-200/80 leading-relaxed">
+              Tindakan ini akan menghapus seluruh data catatan riwayat transaksi, deposit, dan penarikan dari basis data. Saldo akun pengguna tidak akan terpengaruh.
+            </p>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={handleClearHistoryAction}
+                disabled={isClearingHistory}
+                className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-black rounded-xl uppercase transition cursor-pointer shadow-lg shadow-red-950/40 flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isClearingHistory ? 'Mengosongkan...' : 'Kosongkan Semua Riwayat Transaksi'}</span>
               </button>
             </div>
           </div>
